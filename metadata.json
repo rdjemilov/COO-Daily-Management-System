@@ -1,0 +1,6 @@
+{
+  "name": "Daily Management System",
+  "description": "A professional Daily Management System for a food wholesale company, replacing Excel with high-performance Sales KPIs and profitability analysis.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
