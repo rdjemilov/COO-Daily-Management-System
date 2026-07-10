@@ -222,6 +222,15 @@ function parseNumericValue(val: any): number {
   if (typeof val === "number") return val;
   
   let str = String(val).trim();
+  let isNegative = false;
+  if (str.endsWith("-")) {
+    isNegative = true;
+    str = str.slice(0, -1).trim();
+  } else if (str.startsWith("-")) {
+    isNegative = true;
+    str = str.slice(1).trim();
+  }
+  
   // Handle Danish format (comma as decimal separator and dots as thousands separators)
   // e.g. "1.234,56" -> "1234.56"
   if (str.includes(",") && !str.includes(".")) {
@@ -232,7 +241,8 @@ function parseNumericValue(val: any): number {
   }
   
   const parsed = parseFloat(str);
-  return isNaN(parsed) ? 0 : parsed;
+  if (isNaN(parsed)) return 0;
+  return isNegative ? -parsed : parsed;
 }
 
 // Comprehensive Excel Sheet Validator

@@ -45,6 +45,19 @@ export async function getImportHistory(): Promise<ImportMetadata[]> {
       console.error("Error reading metadata history from file:", error);
     }
   }
+
+  // If local history is empty, try to fetch from Google Sheets!
+  if (fileHistory.length === 0) {
+    const googleHistory = await fetchHistoryFromGoogleSheets();
+    if (googleHistory.length > 0) {
+      fileHistory = googleHistory;
+      try {
+        fs.writeFileSync(METADATA_FILE, JSON.stringify(fileHistory, null, 2), "utf-8");
+      } catch (err) {
+        console.warn("Failed to write fetched history to file:", err);
+      }
+    }
+  }
   
   // Combine file history with in-memory additions
   const combined = [...fileHistory];
@@ -109,6 +122,17 @@ export async function getWorksheetData(worksheetName: string): Promise<SalesRawR
   ensureDirectories();
   const filePath = path.join(DATA_DIR, `ws_${worksheetName}.json`);
   if (!fs.existsSync(filePath)) {
+    // Let's try to fetch from Google Sheets!
+    const googleRows = await fetchWorksheetFromGoogleSheets(worksheetName);
+    if (googleRows.length > 0) {
+      inMemoryWorksheets[worksheetName] = googleRows;
+      try {
+        fs.writeFileSync(filePath, JSON.stringify(googleRows, null, 2), "utf-8");
+      } catch (err) {
+        console.warn(`Failed to write fetched worksheet ${worksheetName} to file:`, err);
+      }
+      return googleRows;
+    }
     return [];
   }
   try {
@@ -359,6 +383,115 @@ function getImportHistorySync(): ImportMetadata[] {
     const content = fs.readFileSync(METADATA_FILE, "utf-8");
     return JSON.parse(content) as ImportMetadata[];
   } catch {
+    return [];
+  }
+}
+
+// Google Sheets Lazy Loader Helpers
+async function fetchHistoryFromGoogleSheets(): Promise<ImportMetadata[]> {
+  const hasGoogleCreds = !!(process.env.GOOGLE_CLIENT_EMAIL && process.env.GOOGLE_PRIVATE_KEY && process.env.GOOGLE_SALES_SPREADSHEET_ID);
+  if (!hasGoogleCreds) return [];
+
+  try {
+    const clientEmail = process.env.GOOGLE_CLIENT_EMAIL;
+    const privateKey = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, "\n");
+    const spreadsheetId = process.env.GOOGLE_SALES_SPREADSHEET_ID;
+
+    const auth = new google.auth.JWT({
+      email: clientEmail,
+      key: privateKey,
+      scopes: ["https://www.googleapis.com/auth/spreadsheets"]
+    });
+
+    const sheets = google.sheets({ version: "v4", auth });
+    
+    // Check if _System sheet exists
+    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
+    const hasSystem = spreadsheet.data.sheets?.some(s => s.properties?.title === "_System");
+    if (!hasSystem) return [];
+
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: "_System!A2:M1000",
+    });
+
+    const rows = response.data.values;
+    if (!rows || rows.length === 0) return [];
+
+    return rows.map((r) => ({
+      importId: r[0] || "",
+      businessModule: r[1] || "Sales",
+      businessDate: r[2] || "",
+      worksheetName: r[3] || "",
+      uploadedFileName: r[4] || "",
+      originalFileSize: Number(r[5]) || 0,
+      importedRowCount: Number(r[6]) || 0,
+      importedColumnCount: Number(r[7]) || 0,
+      importedAt: r[8] || "",
+      uploadedBy: r[9] || "",
+      importStatus: r[10] || "success",
+      importVersion: Number(r[11]) || 1,
+      fileHash: r[12] || "",
+      templateVersion: "1.0.0",
+      applicationVersion: "1.0.0"
+    }));
+  } catch (err) {
+    console.error("[Google Sheets API] Failed to fetch import history:", err);
+    return [];
+  }
+}
+
+async function fetchWorksheetFromGoogleSheets(worksheetName: string): Promise<SalesRawRow[]> {
+  const hasGoogleCreds = !!(process.env.GOOGLE_CLIENT_EMAIL && process.env.GOOGLE_PRIVATE_KEY && process.env.GOOGLE_SALES_SPREADSHEET_ID);
+  if (!hasGoogleCreds) return [];
+
+  try {
+    const clientEmail = process.env.GOOGLE_CLIENT_EMAIL;
+    const privateKey = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, "\n");
+    const spreadsheetId = process.env.GOOGLE_SALES_SPREADSHEET_ID;
+
+    const auth = new google.auth.JWT({
+      email: clientEmail,
+      key: privateKey,
+      scopes: ["https://www.googleapis.com/auth/spreadsheets"]
+    });
+
+    const sheets = google.sheets({ version: "v4", auth });
+    
+    // Check if sheet exists
+    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
+    const hasSheet = spreadsheet.data.sheets?.some(s => s.properties?.title === worksheetName);
+    if (!hasSheet) return [];
+
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: `${worksheetName}!A2:Q100000`,
+    });
+
+    const rows = response.data.values;
+    if (!rows || rows.length === 0) return [];
+
+    return rows.map((r) => ({
+      postingDate: r[0] || "",
+      entryType: r[1] || "",
+      documentType: r[2] || "",
+      documentNumber: r[3] || "",
+      itemNumber: r[4] || "",
+      description: r[5] || "",
+      locationCode: r[6] || "",
+      quantity: Number(r[7]) || 0,
+      invoicedQuantity: Number(r[8]) || 0,
+      remainingQuantity: Number(r[9]) || 0,
+      salesAmount: Number(r[10]) || 0,
+      costAmount: Number(r[11]) || 0,
+      sourceType: r[12] || "",
+      customerNumber: r[13] || "",
+      customerName: r[14] || "",
+      departmentCode: r[15] || "",
+      employeeName: r[16] || ""
+    }));
+  } catch (err) {
+    console.error(`[Google Sheets API] Failed to fetch worksheet ${worksheetName}:`, err);
     return [];
   }
 }

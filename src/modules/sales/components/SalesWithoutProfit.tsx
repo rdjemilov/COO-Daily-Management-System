@@ -243,7 +243,7 @@ export default function SalesWithoutProfit({
     }> = {};
 
     currentRows.forEach((row) => {
-      if (row.documentType !== "Faktura") return;
+      if (row.documentType !== "Faktura" && row.documentType !== "Salgsfaktura") return;
       if (isExcludedItem(row.itemNumber, row.description)) return;
       
       // Apply Location filter to customer rows

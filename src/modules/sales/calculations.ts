@@ -75,7 +75,7 @@ export function calculateSalesMetrics(rows: SalesRawRow[], excludeCash: boolean 
     totalGrossProfit += rowProfit;
 
     // Loss calculations
-    if (rowProfit <= 0 && row.documentType === "Faktura") {
+    if (rowProfit <= 0 && (row.documentType === "Faktura" || row.documentType === "Salgsfaktura")) {
       lossCount++;
       totalLossAmount += Math.abs(rowProfit);
     }
@@ -249,7 +249,7 @@ export function getSalesWithoutProfit(rows: SalesRawRow[]): SalesWithoutProfitRo
 
   rows.forEach((row) => {
     // Only consider sales invoices or relevant positive quantity transactions
-    if (row.documentType !== "Faktura") return;
+    if (row.documentType !== "Faktura" && row.documentType !== "Salgsfaktura") return;
     if (isExcludedItem(row.itemNumber, row.description)) return;
 
     const normalisedCost = Math.abs(row.costAmount);
