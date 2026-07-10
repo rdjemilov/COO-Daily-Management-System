@@ -46,17 +46,35 @@ export async function getImportHistory(): Promise<ImportMetadata[]> {
     }
   }
 
-  // If local history is empty, try to fetch from Google Sheets!
-  if (fileHistory.length === 0) {
+  // Fetch from Google Sheets and merge newly discovered worksheets or imports
+  try {
     const googleHistory = await fetchHistoryFromGoogleSheets();
     if (googleHistory.length > 0) {
-      fileHistory = googleHistory;
-      try {
-        fs.writeFileSync(METADATA_FILE, JSON.stringify(fileHistory, null, 2), "utf-8");
-      } catch (err) {
-        console.warn("Failed to write fetched history to file:", err);
+      let modified = false;
+      googleHistory.forEach((googleItem) => {
+        const localIdx = fileHistory.findIndex((lh) => lh.importId === googleItem.importId);
+        if (localIdx === -1) {
+          fileHistory.push(googleItem);
+          modified = true;
+        } else {
+          const localItem = fileHistory[localIdx];
+          if (localItem.importStatus !== googleItem.importStatus || localItem.importVersion < googleItem.importVersion) {
+            fileHistory[localIdx] = { ...localItem, ...googleItem };
+            modified = true;
+          }
+        }
+      });
+
+      if (modified) {
+        try {
+          fs.writeFileSync(METADATA_FILE, JSON.stringify(fileHistory, null, 2), "utf-8");
+        } catch (err) {
+          console.warn("Failed to write merged history to file:", err);
+        }
       }
     }
+  } catch (err) {
+    console.error("[Google Sheets API] Error during background merge:", err);
   }
   
   // Combine file history with in-memory additions
@@ -120,16 +138,24 @@ export async function getWorksheetData(worksheetName: string): Promise<SalesRawR
     return inMemoryWorksheets[worksheetName];
   }
   ensureDirectories();
-  const filePath = path.join(DATA_DIR, `ws_${worksheetName}.json`);
+
+  // Search import history to resolve actual worksheet name (e.g. DD-MM-YYYY worksheet name for normalized YYYY-MM-DD key)
+  const history = await getImportHistory();
+  const matchedMeta = history.find(
+    (h) => (h.businessDate === worksheetName || h.worksheetName === worksheetName) && h.importStatus === "success"
+  );
+  const actualWorksheetName = matchedMeta ? matchedMeta.worksheetName : worksheetName;
+
+  const filePath = path.join(DATA_DIR, `ws_${actualWorksheetName}.json`);
   if (!fs.existsSync(filePath)) {
     // Let's try to fetch from Google Sheets!
-    const googleRows = await fetchWorksheetFromGoogleSheets(worksheetName);
+    const googleRows = await fetchWorksheetFromGoogleSheets(actualWorksheetName);
     if (googleRows.length > 0) {
-      inMemoryWorksheets[worksheetName] = googleRows;
+      inMemoryWorksheets[actualWorksheetName] = googleRows;
       try {
         fs.writeFileSync(filePath, JSON.stringify(googleRows, null, 2), "utf-8");
       } catch (err) {
-        console.warn(`Failed to write fetched worksheet ${worksheetName} to file:`, err);
+        console.warn(`Failed to write fetched worksheet ${actualWorksheetName} to file:`, err);
       }
       return googleRows;
     }
@@ -388,6 +414,57 @@ function getImportHistorySync(): ImportMetadata[] {
 }
 
 // Google Sheets Lazy Loader Helpers
+
+// Helper to normalize dates of format DD-MM-YYYY (or similar) to YYYY-MM-DD
+function normalizeDateToYYYYMMDD(dateStr: string): string | null {
+  if (!dateStr) return null;
+  const clean = dateStr.trim();
+  // Check if matches YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) {
+    return clean;
+  }
+  // Check if matches DD-MM-YYYY
+  const dmYMatch = clean.match(/^(\d{2})-(\d{2})-(\d{4})$/);
+  if (dmYMatch) {
+    const [, d, m, y] = dmYMatch;
+    return `${y}-${m}-${d}`;
+  }
+  // Check if matches D-M-YYYY or similar
+  const dmYMatch2 = clean.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+  if (dmYMatch2) {
+    const [, d, m, y] = dmYMatch2;
+    const padD = d.padStart(2, "0");
+    const padM = m.padStart(2, "0");
+    return `${y}-${padM}-${padD}`;
+  }
+  return null;
+}
+
+// Parses string-formatted numeric inputs (including Danish format e.g. "1.234,56") safely
+function parseGoogleSheetNumeric(val: any): number {
+  if (val === undefined || val === null) return 0;
+  if (typeof val === "number") return val;
+  let str = String(val).trim();
+  if (!str) return 0;
+  let isNegative = false;
+  if (str.endsWith("-")) {
+    isNegative = true;
+    str = str.slice(0, -1).trim();
+  } else if (str.startsWith("-")) {
+    isNegative = true;
+    str = str.slice(1).trim();
+  }
+  // Handle Danish format (comma as decimal separator and dots as thousands separators)
+  if (str.includes(",") && !str.includes(".")) {
+    str = str.replace(/,/g, ".");
+  } else if (str.includes(",") && str.includes(".")) {
+    str = str.replace(/\./g, "").replace(/,/g, ".");
+  }
+  const parsed = parseFloat(str);
+  if (isNaN(parsed)) return 0;
+  return isNegative ? -parsed : parsed;
+}
+
 async function fetchHistoryFromGoogleSheets(): Promise<ImportMetadata[]> {
   const hasGoogleCreds = !!(process.env.GOOGLE_CLIENT_EMAIL && process.env.GOOGLE_PRIVATE_KEY && process.env.GOOGLE_SALES_SPREADSHEET_ID);
   if (!hasGoogleCreds) return [];
@@ -408,33 +485,74 @@ async function fetchHistoryFromGoogleSheets(): Promise<ImportMetadata[]> {
     // Check if _System sheet exists
     const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
     const hasSystem = spreadsheet.data.sheets?.some(s => s.properties?.title === "_System");
-    if (!hasSystem) return [];
+    
+    let history: ImportMetadata[] = [];
 
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: "_System!A2:M1000",
+    if (hasSystem) {
+      const response = await sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: "_System!A2:M1000",
+      });
+
+      const rows = response.data.values;
+      if (rows && rows.length > 0) {
+        history = rows.map((r) => {
+          const rawDate = r[2] || "";
+          const normDate = normalizeDateToYYYYMMDD(rawDate) || rawDate;
+          return {
+            importId: r[0] || "",
+            businessModule: r[1] || "Sales",
+            businessDate: normDate,
+            worksheetName: r[3] || rawDate || normDate,
+            uploadedFileName: r[4] || "",
+            originalFileSize: Number(r[5]) || 0,
+            importedRowCount: Number(r[6]) || 0,
+            importedColumnCount: Number(r[7]) || 0,
+            importedAt: r[8] || "",
+            uploadedBy: r[9] || "",
+            importStatus: r[10] || "success",
+            importVersion: Number(r[11]) || 1,
+            fileHash: r[12] || "",
+            templateVersion: "1.0.0",
+            applicationVersion: "1.0.0"
+          };
+        });
+      }
+    }
+
+    // List all sheets to find any newly created or existing tabs that are not in _System
+    const sheetTitles = spreadsheet.data.sheets
+      ?.map((s) => s.properties?.title || "")
+      .filter((title) => title && !title.startsWith("_")) || [];
+
+    sheetTitles.forEach((title) => {
+      const normDate = normalizeDateToYYYYMMDD(title);
+      if (!normDate) return; // ignore sheet if it's not a date-related tab
+
+      const exists = history.some((h) => h.worksheetName === title || h.businessDate === normDate);
+      if (!exists) {
+        console.log(`[Google Sheets API] Discovered tab "${title}" without system log entry. Synthesizing metadata...`);
+        history.push({
+          importId: `SYN-${normDate.replace(/-/g, "")}`,
+          businessModule: "Sales",
+          businessDate: normDate,
+          worksheetName: title,
+          uploadedFileName: `Google Sheet Tab: ${title}`,
+          originalFileSize: 0,
+          importedRowCount: 100, // placeholder
+          importedColumnCount: 17,
+          importedAt: new Date().toISOString(),
+          uploadedBy: "google-sheets-sync",
+          importStatus: "success",
+          importVersion: 1,
+          fileHash: `syn-${title}`,
+          templateVersion: "1.0.0",
+          applicationVersion: "1.0.0"
+        });
+      }
     });
 
-    const rows = response.data.values;
-    if (!rows || rows.length === 0) return [];
-
-    return rows.map((r) => ({
-      importId: r[0] || "",
-      businessModule: r[1] || "Sales",
-      businessDate: r[2] || "",
-      worksheetName: r[3] || "",
-      uploadedFileName: r[4] || "",
-      originalFileSize: Number(r[5]) || 0,
-      importedRowCount: Number(r[6]) || 0,
-      importedColumnCount: Number(r[7]) || 0,
-      importedAt: r[8] || "",
-      uploadedBy: r[9] || "",
-      importStatus: r[10] || "success",
-      importVersion: Number(r[11]) || 1,
-      fileHash: r[12] || "",
-      templateVersion: "1.0.0",
-      applicationVersion: "1.0.0"
-    }));
+    return history;
   } catch (err) {
     console.error("[Google Sheets API] Failed to fetch import history:", err);
     return [];
@@ -471,25 +589,31 @@ async function fetchWorksheetFromGoogleSheets(worksheetName: string): Promise<Sa
     const rows = response.data.values;
     if (!rows || rows.length === 0) return [];
 
-    return rows.map((r) => ({
-      postingDate: r[0] || "",
-      entryType: r[1] || "",
-      documentType: r[2] || "",
-      documentNumber: r[3] || "",
-      itemNumber: r[4] || "",
-      description: r[5] || "",
-      locationCode: r[6] || "",
-      quantity: Number(r[7]) || 0,
-      invoicedQuantity: Number(r[8]) || 0,
-      remainingQuantity: Number(r[9]) || 0,
-      salesAmount: Number(r[10]) || 0,
-      costAmount: Number(r[11]) || 0,
-      sourceType: r[12] || "",
-      customerNumber: r[13] || "",
-      customerName: r[14] || "",
-      departmentCode: r[15] || "",
-      employeeName: r[16] || ""
-    }));
+    return rows.map((r) => {
+      let loc = String(r[6] || "HOVED").trim();
+      if (loc === "LOK01" || !loc) {
+        loc = "HOVED";
+      }
+      return {
+        postingDate: r[0] || "",
+        entryType: r[1] || "",
+        documentType: r[2] || "",
+        documentNumber: r[3] || "",
+        itemNumber: r[4] || "",
+        description: r[5] || "",
+        locationCode: loc,
+        quantity: parseGoogleSheetNumeric(r[7]),
+        invoicedQuantity: parseGoogleSheetNumeric(r[8] !== undefined ? r[8] : r[7]),
+        remainingQuantity: parseGoogleSheetNumeric(r[9]),
+        salesAmount: parseGoogleSheetNumeric(r[10]),
+        costAmount: parseGoogleSheetNumeric(r[11]),
+        sourceType: r[12] || "",
+        customerNumber: r[13] || "",
+        customerName: r[14] || "",
+        departmentCode: r[15] || "",
+        employeeName: r[16] || ""
+      };
+    });
   } catch (err) {
     console.error(`[Google Sheets API] Failed to fetch worksheet ${worksheetName}:`, err);
     return [];
