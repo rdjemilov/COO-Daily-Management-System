@@ -26,6 +26,10 @@ export default function App() {
   const [rowsCache, setRowsCache] = useState<Record<string, SalesRawRow[]>>({});
   const [loadingRows, setLoadingRows] = useState(false);
 
+  // States for 4-date comparison
+  const [compareFourDatesEnabled, setCompareFourDatesEnabled] = useState(false);
+  const [compareDates, setCompareDates] = useState<string[]>([]);
+
   // Active filters for Sales module
   const [filter, setFilter] = useState<SalesFilter>({
     businessDate: "",
@@ -69,6 +73,13 @@ export default function App() {
           ...prev,
           businessDate: targetDate,
         }));
+
+        setCompareDates([
+          datesData[0] || "",
+          datesData[1] || "",
+          datesData[2] || "",
+          datesData[3] || ""
+        ]);
       }
     } catch (e: any) {
       setError(e.message);
@@ -88,6 +99,15 @@ export default function App() {
     const datesToFetch = [filter.businessDate];
     if (compPrevDate) datesToFetch.push(compPrevDate);
     if (compWeekAgoDate) datesToFetch.push(compWeekAgoDate);
+
+    // If 4-date comparison is enabled, prefetch those dates too
+    if (compareFourDatesEnabled) {
+      compareDates.forEach((d) => {
+        if (d && !datesToFetch.includes(d)) {
+          datesToFetch.push(d);
+        }
+      });
+    }
 
     // Also fetch the last 10 worksheets in background for trend charts
     const chartDates = [...availableDates].sort((a, b) => b.localeCompare(a)).slice(0, 10);
@@ -122,7 +142,7 @@ export default function App() {
     };
 
     fetchNeededDates();
-  }, [filter.businessDate, availableDates]);
+  }, [filter.businessDate, availableDates, compareFourDatesEnabled, compareDates]);
 
   // Extract unique locations and docTypes from CURRENT rows for filter options
   const currentActiveRows = useMemo(() => {
@@ -303,6 +323,10 @@ export default function App() {
                 locations={filterOptions.locations}
                 documentTypes={filterOptions.documentTypes}
                 onClearFilters={handleClearFilters}
+                compareFourDatesEnabled={compareFourDatesEnabled}
+                setCompareFourDatesEnabled={setCompareFourDatesEnabled}
+                compareDates={compareDates}
+                setCompareDates={setCompareDates}
               />
 
               {loadingRows && currentActiveRows.length === 0 ? (
@@ -319,6 +343,8 @@ export default function App() {
                       comparisonDateLabel={comparisonDate ? formatDate(comparisonDate) : "Ingen dagsdata"}
                       allHistoricalRows={rowsCache}
                       availableDates={availableDates}
+                      compareFourDatesEnabled={compareFourDatesEnabled}
+                      compareDates={compareDates}
                     />
                   )}
 

@@ -76,6 +76,33 @@ export function formatDate(
   }
 }
 
+export function getWeekdayLabel(isoDateStr: string): string {
+  if (!isoDateStr) return "";
+  try {
+    const parts = isoDateStr.split("-");
+    let d: Date;
+    if (parts.length === 3) {
+      d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+    } else {
+      d = new Date(isoDateStr);
+    }
+    if (isNaN(d.getTime())) return "";
+    const weekdays = [
+      { da: "Søndag", tr: "Pazar" },
+      { da: "Mandag", tr: "Pazartesi" },
+      { da: "Tirsdag", tr: "Salı" },
+      { da: "Onsdag", tr: "Çarşamba" },
+      { da: "Torsdag", tr: "Perşembe" },
+      { da: "Fredag", tr: "Cuma" },
+      { da: "Lørdag", tr: "Cumartesi" }
+    ];
+    const dayInfo = weekdays[d.getDay()];
+    return `${dayInfo.da} (${dayInfo.tr})`;
+  } catch (e) {
+    return "";
+  }
+}
+
 export function formatFileSize(bytes: number): string {
   if (bytes === 0) return "0 Bytes";
   const k = 1024;

@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef } from "react";
 import { Info, ChevronUp, ChevronDown, Award, TrendingUp, DollarSign, Percent, FileText, Users, ShoppingBag, Eye, X, ArrowUpDown, Calendar, HelpCircle, Check, Search, Download } from "lucide-react";
 import { SalesRawRow, KPIMetric, CustomerSummary, ProductSummary } from "../../../shared/types.js";
-import { formatCurrency, formatDate, formatNumber, formatPercentage } from "../../../shared/utils/format.js";
+import { formatCurrency, formatDate, formatNumber, formatPercentage, getWeekdayLabel } from "../../../shared/utils/format.js";
 import { calculateSalesMetrics, getTopCustomers, getTopProducts, isCashCustomer, isExcludedItem } from "../calculations.js";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as ChartTooltip, ResponsiveContainer, AreaChart, Area, Legend } from "recharts";
 import { exportElementToPDF } from "../../../shared/utils/pdfExport.ts";
@@ -12,6 +12,8 @@ interface SalesOverviewProps {
   comparisonDateLabel: string;
   allHistoricalRows: Record<string, SalesRawRow[]>; // Available date -> rows
   availableDates: string[];
+  compareFourDatesEnabled?: boolean;
+  compareDates?: string[];
 }
 
 export default function SalesOverview({
@@ -20,6 +22,8 @@ export default function SalesOverview({
   comparisonDateLabel,
   allHistoricalRows,
   availableDates,
+  compareFourDatesEnabled = false,
+  compareDates = [],
 }: SalesOverviewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [pdfStatus, setPdfStatus] = useState<string | null>(null);
@@ -166,6 +170,21 @@ export default function SalesOverview({
       ),
     ];
   }, [currentMetrics, comparisonMetrics]);
+
+  // side-by-side 4 dates metrics calculation
+  const fourDatesMetrics = useMemo(() => {
+    if (!compareFourDatesEnabled || !compareDates) return [];
+    return compareDates.map((date) => {
+      const rows = allHistoricalRows[date] || [];
+      const metrics = calculateSalesMetrics(rows, excludeCashCustomers);
+      return {
+        date,
+        hasData: rows.length > 0,
+        metrics,
+        weekday: getWeekdayLabel(date),
+      };
+    });
+  }, [compareFourDatesEnabled, compareDates, allHistoricalRows, excludeCashCustomers]);
 
   // 3. Historical Daily Trends Data for Charts (Section 22)
   const chartData = useMemo(() => {
@@ -324,6 +343,18 @@ export default function SalesOverview({
             <p className="text-xs text-gray-400 mt-0.5">
               Filtre og KPI'er for omsætning, margin og dækningsgrad mod {comparisonDateLabel}
             </p>
+            <div className="mt-1.5 flex flex-wrap gap-2 text-[11px]">
+              {currentRows.length > 0 && (
+                <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 font-bold border border-blue-100 shadow-3xs">
+                  Aktiv dato: {getWeekdayLabel(currentRows[0]?.postingDate || "")}
+                </span>
+              )}
+              {comparisonRows.length > 0 && (
+                <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-50 text-slate-700 font-semibold border border-slate-200">
+                  Sammenlignet med: {getWeekdayLabel(comparisonRows[0]?.postingDate || "")}
+                </span>
+              )}
+            </div>
           </div>
         </div>
 
@@ -344,6 +375,139 @@ export default function SalesOverview({
           </button>
         </div>
       </div>
+
+      {/* Side-by-Side 4 Dato Sammenligning */}
+      {compareFourDatesEnabled && fourDatesMetrics.length > 0 && (
+        <div className="bg-white border border-blue-100 rounded-xl p-5 shadow-xs space-y-4 animate-in fade-in duration-200">
+          <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+            <div className="flex items-center gap-2">
+              <span className="text-lg">⚖️</span>
+              <div>
+                <h3 className="text-sm font-bold text-gray-900">Side-om-side 4 Dato Sammenligning</h3>
+                <p className="text-[11px] text-gray-500">Multivariat sammenligning af de 4 valgte forretningsdatoer</p>
+              </div>
+            </div>
+            <span className="bg-blue-100 text-blue-800 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase">
+              Aktiv visning
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {fourDatesMetrics.map(({ date, hasData, metrics, weekday }, idx) => {
+              if (!date) {
+                return (
+                  <div key={idx} className="bg-gray-50/50 border border-dashed border-gray-200 rounded-xl p-4 flex items-center justify-center text-xs text-gray-400 h-48">
+                    Ingen dato valgt
+                  </div>
+                );
+              }
+
+              const isActive = currentRows.length > 0 && date === currentRows[0]?.postingDate;
+
+              return (
+                <div 
+                  key={date} 
+                  className={`border rounded-xl p-4 space-y-3 shadow-2xs transition hover:shadow-xs relative overflow-hidden ${
+                    isActive
+                      ? "bg-blue-50/20 border-blue-200 ring-1 ring-blue-100" 
+                      : "bg-white border-gray-200"
+                  }`}
+                >
+                  {/* Card Header */}
+                  <div className="border-b border-gray-100 pb-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">
+                        Dato {idx + 1}
+                      </span>
+                      {isActive && (
+                        <span className="bg-blue-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-md uppercase animate-pulse">
+                          Aktiv
+                        </span>
+                      )}
+                    </div>
+                    <h4 className="text-sm font-bold text-gray-950 mt-0.5">
+                      {formatDate(date)}
+                    </h4>
+                    <p className="text-[10px] text-gray-500 font-medium">
+                      {weekday}
+                    </p>
+                  </div>
+
+                  {!hasData ? (
+                    <div className="flex flex-col items-center justify-center py-10 text-gray-400 text-xs">
+                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-500 mb-2"></div>
+                      <span>Henter dagsdata...</span>
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5">
+                      {/* Metric 1: Sales */}
+                      <div>
+                        <span className="text-[10px] font-semibold text-gray-400 block uppercase">
+                          Omsætning (Sales)
+                        </span>
+                        <span className="text-sm font-bold text-gray-900">
+                          {formatCurrency(metrics.totalSales)}
+                        </span>
+                      </div>
+
+                      {/* Metric 2: Profit */}
+                      <div>
+                        <span className="text-[10px] font-semibold text-gray-400 block uppercase">
+                          Bruttofortjeneste
+                        </span>
+                        <span className="text-sm font-bold text-emerald-700">
+                          {formatCurrency(metrics.totalGrossProfit)}
+                        </span>
+                      </div>
+
+                      {/* Metric 3: Margin */}
+                      <div>
+                        <div className="flex justify-between items-center text-[10px] font-semibold text-gray-400 uppercase mb-0.5">
+                          <span>Dækningsgrad (DG %)</span>
+                          <span className="font-bold text-gray-800">{formatPercentage(metrics.grossMarginPercentage)}</span>
+                        </div>
+                        {/* Progress Bar */}
+                        <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden border border-gray-200/40">
+                          <div 
+                            className={`h-full rounded-full ${
+                              metrics.grossMarginPercentage >= 40 
+                                ? "bg-emerald-500" 
+                                : metrics.grossMarginPercentage >= 25 
+                                ? "bg-blue-500" 
+                                : "bg-rose-500"
+                            }`}
+                            style={{ width: `${Math.min(100, Math.max(0, metrics.grossMarginPercentage))}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Mini stats grid */}
+                      <div className="grid grid-cols-2 gap-2 pt-2 border-t border-gray-50 text-center">
+                        <div className="bg-gray-50/50 p-1.5 rounded-lg border border-gray-100">
+                          <span className="text-[9px] text-gray-400 font-bold block uppercase">
+                            Fakturaer
+                          </span>
+                          <span className="text-xs font-bold text-gray-800">
+                            {formatNumber(metrics.uniqueInvoices, 0)}
+                          </span>
+                        </div>
+                        <div className="bg-gray-50/50 p-1.5 rounded-lg border border-gray-100">
+                          <span className="text-[9px] text-gray-400 font-bold block uppercase">
+                            Kunder
+                          </span>
+                          <span className="text-xs font-bold text-gray-800">
+                            {formatNumber(metrics.uniqueCustomers, 0)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* 1. KPI Grid Dashboard Panel */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
