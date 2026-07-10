@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useRef } from "react";
 import { 
   AlertOctagon, 
   TrendingDown, 
@@ -22,6 +22,7 @@ import {
 import { SalesRawRow, SalesWithoutProfitRow } from "../../../shared/types.js";
 import { formatCurrency, formatDate, formatNumber, formatPercentage } from "../../../shared/utils/format.js";
 import { getSalesWithoutProfit, isExcludedItem } from "../calculations.js";
+import { exportElementToPDF } from "../../../shared/utils/pdfExport.ts";
 
 interface SalesWithoutProfitProps {
   currentRows: SalesRawRow[];
@@ -32,6 +33,26 @@ export default function SalesWithoutProfit({
   currentRows,
   filterLocation,
 }: SalesWithoutProfitProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [pdfStatus, setPdfStatus] = useState<string | null>(null);
+
+  const handleExportPDF = async () => {
+    if (!containerRef.current) return;
+    setPdfStatus("Forbereder PDF...");
+    try {
+      await exportElementToPDF(
+        containerRef.current,
+        `danfoods_salg_uden_fortjeneste_${new Date().toISOString().split("T")[0]}`,
+        { orientation: "landscape" },
+        (status) => setPdfStatus(status)
+      );
+      setPdfStatus(null);
+    } catch (err) {
+      setPdfStatus("Fejl under eksport");
+      setTimeout(() => setPdfStatus(null), 3000);
+    }
+  };
+
   const [searchTerm, setSearchTerm] = useState("");
   const [severityFilter, setSeverityFilter] = useState<string>("all");
   const [activeTab, setActiveTab] = useState<"products" | "customers" | "flat">("products");
@@ -480,7 +501,7 @@ export default function SalesWithoutProfit({
   };
 
   return (
-    <div className="space-y-6" id="sales-without-profit-module">
+    <div ref={containerRef} className="space-y-6 p-1 bg-slate-50/30 rounded-2xl" id="sales-without-profit-module">
       {/* Overview Intro Banner */}
       <div className="bg-amber-50 border border-amber-200/60 rounded-xl p-4 text-xs text-amber-950 flex items-start gap-3">
         <AlertOctagon className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" id="alert-octagon-icon" />
@@ -533,7 +554,7 @@ export default function SalesWithoutProfit({
       </div>
 
       {/* Module Navigation Tabs */}
-      <div className="flex border-b border-gray-200 bg-white p-1 rounded-xl shadow-xs" id="navigation-tabs-container">
+      <div className="no-print flex border-b border-gray-200 bg-white p-1 rounded-xl shadow-xs" id="navigation-tabs-container">
         <button
           onClick={() => setActiveTab("products")}
           className={`flex-1 py-2.5 text-xs font-semibold rounded-lg transition duration-150 cursor-pointer ${
@@ -591,7 +612,7 @@ export default function SalesWithoutProfit({
 
       {/* Search and Action Bar */}
       <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4" id="search-action-bar">
-        <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+        <div className="no-print flex flex-wrap items-center gap-3 w-full sm:w-auto">
           {/* Search Input */}
           <div className="relative w-full sm:max-w-xs text-xs">
             <input
@@ -673,15 +694,31 @@ export default function SalesWithoutProfit({
         </div>
 
         {/* Export action */}
-        <button
-          onClick={exportCSV}
-          disabled={filteredRawRows.length === 0}
-          className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition shrink-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-          id="btn-export-csv"
-        >
-          <Download className="h-3.5 w-3.5 text-gray-500" />
-          Eksporter CSV
-        </button>
+        <div className="no-print flex items-center gap-2">
+          {pdfStatus && (
+            <span className="text-xs font-semibold text-brand animate-pulse mr-2">
+              {pdfStatus}
+            </span>
+          )}
+          <button
+            onClick={handleExportPDF}
+            disabled={!!pdfStatus}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-brand hover:bg-brand-hover rounded-lg transition shrink-0 cursor-pointer disabled:opacity-50 shadow-2xs"
+          >
+            <Download className="h-3.5 w-3.5" />
+            Eksporter PDF
+          </button>
+          
+          <button
+            onClick={exportCSV}
+            disabled={filteredRawRows.length === 0}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition shrink-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-2xs"
+            id="btn-export-csv"
+          >
+            <Download className="h-3.5 w-3.5 text-gray-500" />
+            Eksporter CSV
+          </button>
+        </div>
       </div>
 
       {/* Tab Contents */}

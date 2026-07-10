@@ -5,6 +5,7 @@ import * as XLSX from "xlsx";
 import { seedMockDataIfEmpty, getImportHistory, saveToGoogleSheets, getWorksheetData, calculateFileHash, checkDuplicateFile } from "./server/dbService.js";
 import { validateExcelData, cleanAndMapRows } from "./server/validator.js";
 import { ImportMetadata } from "./src/shared/types.js";
+import { calculateSalesAlerts, getISOWeekString } from "./server/alerts/sales-alerts.service.js";
 
 const app = express();
 
@@ -53,6 +54,49 @@ app.get("/api/data/:worksheet", async (req, res) => {
     res.json(data);
   } catch (e: any) {
     res.status(500).json({ error: `Failed to fetch data for worksheet ${req.params.worksheet}: ` + e.message });
+  }
+});
+
+// API Route: Get Sales Alerts & Opportunities
+app.get("/api/sales/alerts", async (req, res) => {
+  try {
+    let week = req.query.week as string;
+    
+    // If no week parameter, default to the week of the latest imported worksheet
+    if (!week) {
+      const history = await getImportHistory();
+      const successImports = history.filter((m) => m.importStatus === "success");
+      const dates = Array.from(new Set(successImports.map((m) => m.businessDate))).sort((a, b) => b.localeCompare(a));
+      if (dates.length > 0) {
+        week = getISOWeekString(dates[0]);
+      } else {
+        // Fallback to current year's week
+        week = getISOWeekString(new Date().toISOString().split("T")[0]);
+      }
+    }
+
+    // Helper to parse potential arrays or strings of filters
+    const parseArrayQuery = (q: any): string[] | undefined => {
+      if (!q) return undefined;
+      if (Array.isArray(q)) return q as string[];
+      if (typeof q === "string") return q.split(",").map((s) => s.trim()).filter(Boolean);
+      return undefined;
+    };
+
+    const filters = {
+      location: parseArrayQuery(req.query.location),
+      documentType: parseArrayQuery(req.query.documentType),
+      customerQuery: req.query.customerQuery as string || undefined,
+      productQuery: req.query.productQuery as string || undefined,
+      excludeCashCustomers: req.query.excludeCashCustomers !== undefined ? req.query.excludeCashCustomers === "true" : true,
+      expectedBusinessDays: req.query.expectedBusinessDays ? parseInt(req.query.expectedBusinessDays as string) : 5,
+      criticalRiskThreshold: req.query.criticalRiskThreshold ? parseFloat(req.query.criticalRiskThreshold as string) : 5000,
+    };
+
+    const alerts = await calculateSalesAlerts(week, filters);
+    res.json(alerts);
+  } catch (e: any) {
+    res.status(500).json({ error: "Failed to load sales alerts: " + e.message });
   }
 });
 

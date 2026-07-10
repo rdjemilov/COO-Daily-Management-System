@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { LayoutDashboard, BarChart3, Database, Menu, X, ChevronLeft, ChevronRight, User } from "lucide-react";
+import DanfoodsLogo from "../logo/DanfoodsLogo.tsx";
 
 interface SidebarItem {
   id: string;
@@ -34,19 +35,17 @@ export default function Shell({ children, activeModule, setActiveModule }: Shell
         {/* Title / Logo Area */}
         <div className="h-16 flex items-center justify-between px-4 border-b border-slate-800 shrink-0">
           {!collapsed ? (
-            <span className="text-sm font-bold text-white tracking-wider uppercase font-sans">
-              Daily Management
-            </span>
+            <DanfoodsLogo light={true} className="h-11 w-44" />
           ) : (
-            <span className="text-sm font-bold text-white bg-blue-600 h-8 w-8 rounded-lg flex items-center justify-center mx-auto">
-              D
-            </span>
+            <div className="h-9 w-9 rounded-lg flex items-center justify-center mx-auto bg-brand text-white font-bold transition-all">
+              <span className="text-base">😊</span>
+            </div>
           )}
 
           {/* Toggle button */}
           <button
             onClick={() => setCollapsed(!collapsed)}
-            className="p-1 hover:bg-slate-800 hover:text-white rounded transition absolute -right-3 top-4.5 bg-slate-900 border border-slate-800 text-slate-400"
+            className="p-1 hover:bg-slate-800 hover:text-white rounded transition absolute -right-3 top-4.5 bg-slate-900 border border-slate-800 text-slate-400 cursor-pointer"
           >
             {collapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronLeft className="h-3 w-3" />}
           </button>
@@ -61,9 +60,9 @@ export default function Shell({ children, activeModule, setActiveModule }: Shell
               <button
                 key={item.id}
                 onClick={() => setActiveModule(item.id)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-semibold tracking-wide transition-all duration-200 group relative ${
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-semibold tracking-wide transition-all duration-200 group relative cursor-pointer ${
                   active
-                    ? "bg-blue-600 text-white"
+                    ? "bg-brand text-white shadow-xs"
                     : "hover:bg-slate-800/60 hover:text-slate-200 text-slate-400"
                 }`}
               >
@@ -96,10 +95,10 @@ export default function Shell({ children, activeModule, setActiveModule }: Shell
 
       {/* 2. Mobile Nav Drawer Toggle Bar */}
       <div className="md:hidden fixed top-0 left-0 right-0 h-16 bg-slate-900 text-white flex items-center justify-between px-4 z-40">
-        <span className="text-xs font-bold uppercase tracking-wider">Daily Management</span>
+        <DanfoodsLogo light={true} className="h-10 w-36" />
         <button
           onClick={() => setMobileOpen(!mobileOpen)}
-          className="p-1 text-slate-400 hover:text-white"
+          className="p-1 text-slate-400 hover:text-white cursor-pointer"
         >
           {mobileOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
         </button>
@@ -118,8 +117,8 @@ export default function Shell({ children, activeModule, setActiveModule }: Shell
                   setActiveModule(item.id);
                   setMobileOpen(false);
                 }}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold ${
-                  active ? "bg-blue-600 text-white" : "hover:bg-slate-800 hover:text-slate-200"
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold cursor-pointer ${
+                  active ? "bg-brand text-white" : "hover:bg-slate-800 hover:text-slate-200"
                 }`}
               >
                 <Icon className="h-5 w-5" />
@@ -136,7 +135,7 @@ export default function Shell({ children, activeModule, setActiveModule }: Shell
         <header className="h-16 bg-white border-b border-gray-100 flex items-center justify-between px-6 shrink-0 shadow-2xs">
           <div className="flex items-center gap-3">
             <span className="text-xs font-semibold text-slate-400">AKTIVT MILJØ:</span>
-            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-100 uppercase">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-brand-light text-brand border border-brand-light uppercase">
               Mock Simulation Active (No sheets auth required)
             </span>
           </div>
@@ -145,9 +144,9 @@ export default function Shell({ children, activeModule, setActiveModule }: Shell
           <div className="flex items-center gap-3 text-xs">
             <div className="text-right hidden sm:block">
               <p className="font-semibold text-gray-800">Rasim Studio</p>
-              <p className="text-[10px] text-gray-400">studiorasim@gmail.com</p>
+              <p className="text-[10px] text-gray-400 font-mono">studiorasim@gmail.com</p>
             </div>
-            <div className="p-2 bg-slate-100 text-slate-600 rounded-full">
+            <div className="p-2 bg-brand-light text-brand rounded-full">
               <User className="h-4 w-4" />
             </div>
           </div>

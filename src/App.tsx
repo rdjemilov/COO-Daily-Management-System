@@ -5,6 +5,7 @@ import DashboardHome from "./shared/components/layout/DashboardHome.tsx";
 import SalesFilterBar from "./shared/components/filters/SalesFilterBar.tsx";
 import SalesOverview from "./modules/sales/components/SalesOverview.tsx";
 import SalesWithoutProfit from "./modules/sales/components/SalesWithoutProfit.tsx";
+import SalesAlertsAndOpportunities from "./modules/sales/components/SalesAlertsAndOpportunities.tsx";
 import DatabaseManagement from "./modules/database/components/DatabaseManagement.tsx";
 import { SalesRawRow, ImportMetadata, SalesFilter } from "./shared/types.ts";
 import { getComparisonDate } from "./modules/sales/calculations.ts";
@@ -13,7 +14,7 @@ import { RefreshCw, AlertCircle } from "lucide-react";
 
 export default function App() {
   const [activeModule, setActiveModule] = useState<string>("dashboard");
-  const [salesTab, setSalesTab] = useState<"overview" | "sales-without-profit">("overview");
+  const [salesTab, setSalesTab] = useState<"overview" | "sales-without-profit" | "sales-alerts">("overview");
 
   // Global database files state
   const [availableDates, setAvailableDates] = useState<string[]>([]);
@@ -260,7 +261,7 @@ export default function App() {
                 </div>
 
                 {/* Tab buttons */}
-                <div className="flex bg-gray-100 p-1 rounded-lg self-start sm:self-center">
+                <div className="flex bg-gray-100 p-1 rounded-lg self-start sm:self-center flex-wrap gap-1">
                   <button
                     onClick={() => setSalesTab("overview")}
                     className={`px-3.5 py-1.5 text-xs font-semibold rounded-md transition cursor-pointer ${
@@ -280,6 +281,16 @@ export default function App() {
                     }`}
                   >
                     Salg uden fortjeneste
+                  </button>
+                  <button
+                    onClick={() => setSalesTab("sales-alerts")}
+                    className={`px-3.5 py-1.5 text-xs font-semibold rounded-md transition cursor-pointer ${
+                      salesTab === "sales-alerts"
+                        ? "bg-white text-brand shadow-2xs"
+                        : "text-gray-500 hover:text-brand"
+                    }`}
+                  >
+                    Sales Alerts & Opportunities
                   </button>
                 </div>
               </div>
@@ -315,6 +326,12 @@ export default function App() {
                     <SalesWithoutProfit
                       currentRows={filteredActiveRows}
                       filterLocation={filter.location}
+                    />
+                  )}
+
+                  {salesTab === "sales-alerts" && (
+                    <SalesAlertsAndOpportunities
+                      filter={filter}
                     />
                   )}
                 </>

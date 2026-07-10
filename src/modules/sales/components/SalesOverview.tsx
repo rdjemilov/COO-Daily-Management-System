@@ -1,9 +1,10 @@
-import React, { useState, useMemo } from "react";
-import { Info, ChevronUp, ChevronDown, Award, TrendingUp, DollarSign, Percent, FileText, Users, ShoppingBag, Eye, X, ArrowUpDown, Calendar, HelpCircle, Check, Search } from "lucide-react";
+import React, { useState, useMemo, useRef } from "react";
+import { Info, ChevronUp, ChevronDown, Award, TrendingUp, DollarSign, Percent, FileText, Users, ShoppingBag, Eye, X, ArrowUpDown, Calendar, HelpCircle, Check, Search, Download } from "lucide-react";
 import { SalesRawRow, KPIMetric, CustomerSummary, ProductSummary } from "../../../shared/types.js";
 import { formatCurrency, formatDate, formatNumber, formatPercentage } from "../../../shared/utils/format.js";
 import { calculateSalesMetrics, getTopCustomers, getTopProducts, isCashCustomer, isExcludedItem } from "../calculations.js";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as ChartTooltip, ResponsiveContainer, AreaChart, Area, Legend } from "recharts";
+import { exportElementToPDF } from "../../../shared/utils/pdfExport.ts";
 
 interface SalesOverviewProps {
   currentRows: SalesRawRow[];
@@ -20,6 +21,26 @@ export default function SalesOverview({
   allHistoricalRows,
   availableDates,
 }: SalesOverviewProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [pdfStatus, setPdfStatus] = useState<string | null>(null);
+
+  const handleExportPDF = async () => {
+    if (!containerRef.current) return;
+    setPdfStatus("Forbereder PDF...");
+    try {
+      await exportElementToPDF(
+        containerRef.current,
+        `danfoods_sales_overview_${new Date().toISOString().split("T")[0]}`,
+        { orientation: "landscape" },
+        (status) => setPdfStatus(status)
+      );
+      setPdfStatus(null);
+    } catch (err) {
+      setPdfStatus("Fejl under eksport");
+      setTimeout(() => setPdfStatus(null), 3000);
+    }
+  };
+
   const [excludeCashCustomers, setExcludeCashCustomers] = useState(false);
   const [topCustLimit, setTopCustLimit] = useState(10);
   const [custSearch, setCustSearch] = useState("");
@@ -291,7 +312,39 @@ export default function SalesOverview({
   }, [selectedProduct, currentRows, allHistoricalRows, availableDates]);
 
   return (
-    <div className="space-y-6">
+    <div ref={containerRef} className="space-y-6 p-1 bg-slate-50/30 rounded-2xl">
+      {/* Top Action and Branding Header Panel */}
+      <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-4">
+          <div className="p-2.5 bg-brand-light rounded-lg">
+            <span className="text-xl">📊</span>
+          </div>
+          <div>
+            <h2 className="text-sm font-bold text-gray-900">Executive Overview</h2>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Filtre og KPI'er for omsætning, margin og dækningsgrad mod {comparisonDateLabel}
+            </p>
+          </div>
+        </div>
+
+        {/* Action Button (Hidden in Print) */}
+        <div className="no-print flex items-center gap-3">
+          {pdfStatus && (
+            <span className="text-xs font-semibold text-brand animate-pulse">
+              {pdfStatus}
+            </span>
+          )}
+          <button
+            onClick={handleExportPDF}
+            disabled={!!pdfStatus}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-brand hover:bg-brand-hover text-white text-xs font-semibold rounded-lg transition shadow-2xs hover:shadow-sm cursor-pointer disabled:opacity-50"
+          >
+            <Download className="h-4 w-4" />
+            <span>Eksporter PDF</span>
+          </button>
+        </div>
+      </div>
+
       {/* 1. KPI Grid Dashboard Panel */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {kpiCards.map((kpi) => {
@@ -486,7 +539,7 @@ export default function SalesOverview({
                   <th className="p-3 text-right">Fortjeneste</th>
                   <th className="p-3 text-right">DG %</th>
                   <th className="p-3 text-right">Andel</th>
-                  <th className="p-3 text-center">Vis</th>
+                  <th className="p-3 text-center no-print">Vis</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -514,7 +567,7 @@ export default function SalesOverview({
                         {formatPercentage(cust.grossMargin)}
                       </td>
                       <td className="p-3 text-right text-gray-400">{formatPercentage(cust.shareOfTotalSales)}</td>
-                      <td className="p-3 text-center">
+                      <td className="p-3 text-center no-print">
                         <button className="p-1 text-gray-400 hover:text-blue-600 transition">
                           <Eye className="h-4 w-4" />
                         </button>
@@ -560,7 +613,7 @@ export default function SalesOverview({
                   <th className="p-3 text-right">Fortjeneste</th>
                   <th className="p-3 text-right">DG %</th>
                   <th className="p-3 text-right">Andel</th>
-                  <th className="p-3 text-center">Vis</th>
+                  <th className="p-3 text-center no-print">Vis</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -589,7 +642,7 @@ export default function SalesOverview({
                         {formatPercentage(prod.grossMargin)}
                       </td>
                       <td className="p-3 text-right text-gray-400">{formatPercentage(prod.shareOfTotalSales)}</td>
-                      <td className="p-3 text-center">
+                      <td className="p-3 text-center no-print">
                         <button className="p-1 text-gray-400 hover:text-indigo-600 transition">
                           <Eye className="h-4 w-4" />
                         </button>
