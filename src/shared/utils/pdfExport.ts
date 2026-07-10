@@ -52,44 +52,43 @@ function oklchToRgb(l: number, c: number, h: number): [number, number, number] {
 
 function replaceColorFunction(cssText: string, functionName: "oklch" | "oklab"): string {
   const lowerName = functionName.toLowerCase();
-  let index = 0;
+  const regex = new RegExp(`${lowerName}\\s*\\(`, 'gi');
+  let match;
   
-  while (true) {
-    // Find the next occurrence of functionName (case-insensitive)
-    const matchIndex = cssText.toLowerCase().indexOf(lowerName + "(", index);
-    if (matchIndex === -1) break;
-    
-    // Find the closing parenthesis matching this opening parenthesis
+  // Find all matches
+  const matches: { start: number; contentStart: number }[] = [];
+  while ((match = regex.exec(cssText)) !== null) {
+    matches.push({
+      start: match.index,
+      contentStart: match.index + match[0].length
+    });
+  }
+  
+  // Process backwards so indices remain correct
+  for (let i = matches.length - 1; i >= 0; i--) {
+    const { start, contentStart } = matches[i];
     let openParens = 1;
     let closingIndex = -1;
-    const searchStart = matchIndex + lowerName.length + 1;
     
-    for (let i = searchStart; i < cssText.length; i++) {
-      if (cssText[i] === "(") {
+    for (let j = contentStart; j < cssText.length; j++) {
+      if (cssText[j] === "(") {
         openParens++;
-      } else if (cssText[i] === ")") {
+      } else if (cssText[j] === ")") {
         openParens--;
         if (openParens === 0) {
-          closingIndex = i;
+          closingIndex = j;
           break;
         }
       }
     }
     
-    if (closingIndex === -1) {
-      // Unclosed parenthesis, just advance index and continue
-      index = searchStart;
-      continue;
-    }
+    if (closingIndex === -1) continue;
     
-    // Extract the full match, e.g., "oklch(0.6 0.2 290)"
-    const fullMatch = cssText.substring(matchIndex, closingIndex + 1);
-    const innerContent = cssText.substring(searchStart, closingIndex);
+    const fullMatch = cssText.substring(start, closingIndex + 1);
+    const innerContent = cssText.substring(contentStart, closingIndex);
     
-    // Convert the inner content to rgb/rgba
     let replacement = "rgba(128, 128, 128, 0.5)"; // Safe fallback
     try {
-      // Check if it contains CSS variables or complex expressions
       if (innerContent.includes("var(") || innerContent.includes("calc(")) {
         replacement = "rgba(128, 128, 128, 0.5)";
       } else {
@@ -116,10 +115,7 @@ function replaceColorFunction(cssText: string, functionName: "oklch" | "oklab"):
       console.warn("Failed to parse color", fullMatch, e);
     }
     
-    // Replace the fullMatch in cssText
-    cssText = cssText.substring(0, matchIndex) + replacement + cssText.substring(closingIndex + 1);
-    // Move index to after the replacement
-    index = matchIndex + replacement.length;
+    cssText = cssText.substring(0, start) + replacement + cssText.substring(closingIndex + 1);
   }
   
   return cssText;
@@ -270,6 +266,91 @@ function replaceInlineStyles(el: HTMLElement) {
   };
 }
 
+function patchGetComputedStyleGlobally(): () => void {
+  const cleanups: (() => void)[] = [];
+
+  function patchWindow(win: Window) {
+    try {
+      const proto = (win as any).CSSStyleDeclaration?.prototype || CSSStyleDeclaration.prototype;
+      const originalGetPropertyValue = proto.getPropertyValue;
+      proto.getPropertyValue = function (this: any, prop: string) {
+        const val = originalGetPropertyValue.call(this, prop);
+        if (typeof val === "string" && (val.toLowerCase().includes("oklch") || val.toLowerCase().includes("oklab"))) {
+          return convertOklchAndOklabText(val);
+        }
+        return val;
+      };
+
+      const originalGetComputedStyle = win.getComputedStyle;
+      win.getComputedStyle = function (this: any, elt: Element, pseudoElt?: string) {
+        const style = originalGetComputedStyle.call(this, elt, pseudoElt);
+        return new Proxy(style, {
+          get(target, prop, receiver) {
+            const val = Reflect.get(target, prop, receiver);
+            if (typeof val === "string" && (val.toLowerCase().includes("oklch") || val.toLowerCase().includes("oklab"))) {
+              return convertOklchAndOklabText(val);
+            }
+            if (typeof val === "function") {
+              return val.bind(target);
+            }
+            return val;
+          }
+        });
+      };
+
+      cleanups.push(() => {
+        proto.getPropertyValue = originalGetPropertyValue;
+        win.getComputedStyle = originalGetComputedStyle;
+      });
+    } catch (e) {
+      console.warn("Failed to patch window computed style", e);
+    }
+  }
+
+  // Patch main window
+  patchWindow(window);
+
+  // Hook document.createElement to intercept iframe creation
+  try {
+    const originalCreateElement = document.createElement;
+    document.createElement = function (this: Document, tagName: string, options?: any) {
+      const el = originalCreateElement.call(this, tagName, options);
+      if (tagName.toLowerCase() === "iframe") {
+        const iframe = el as HTMLIFrameElement;
+        let patched = false;
+        Object.defineProperty(iframe, "contentWindow", {
+          get() {
+            const win = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, "contentWindow")?.get?.call(iframe);
+            if (win && !patched) {
+              patched = true;
+              patchWindow(win);
+            }
+            return win;
+          },
+          configurable: true
+        });
+      }
+      return el;
+    };
+
+    cleanups.push(() => {
+      document.createElement = originalCreateElement;
+    });
+  } catch (e) {
+    console.warn("Failed to hook document.createElement for oklch patch", e);
+  }
+
+  return () => {
+    cleanups.forEach((cleanup) => {
+      try {
+        cleanup();
+      } catch (err) {
+        console.warn("Error running cleanup in getComputedStyle patch", err);
+      }
+    });
+  };
+}
+
 // --- Main PDF Export Function ---
 
 export async function exportElementToPDF(
@@ -282,9 +363,13 @@ export async function exportElementToPDF(
 
   let restoreStylesheets: (() => void) | null = null;
   let restoreInlineStyles: (() => void) | null = null;
+  let restoreGetComputedStyle: (() => void) | null = null;
 
   try {
     if (onProgress) onProgress("Forbereder rapport...");
+
+    // Monkey patch getComputedStyle to intercept html2canvas style resolution
+    restoreGetComputedStyle = patchGetComputedStyleGlobally();
 
     // Pre-process stylesheets and inline styles to replace oklch/oklab
     restoreStylesheets = await replaceOklchAndOklabInStylesAsync();
@@ -327,8 +412,18 @@ export async function exportElementToPDF(
     });
 
     // Restore oklch colors for standard interactive browser display
-    if (restoreInlineStyles) restoreInlineStyles();
-    if (restoreStylesheets) restoreStylesheets();
+    if (restoreInlineStyles) {
+      restoreInlineStyles();
+      restoreInlineStyles = null;
+    }
+    if (restoreStylesheets) {
+      restoreStylesheets();
+      restoreStylesheets = null;
+    }
+    if (restoreGetComputedStyle) {
+      restoreGetComputedStyle();
+      restoreGetComputedStyle = null;
+    }
 
     if (onProgress) onProgress("Opretter PDF-sider...");
 
@@ -387,11 +482,12 @@ export async function exportElementToPDF(
     if (onProgress) onProgress("Færdiggør fil...");
     pdf.save(`${filename}.pdf`);
   } catch (error) {
+    console.error("PDF generation failed:", error);
+    throw error;
+  } finally {
     // Ensure styles are restored even if generation crashes
     if (restoreInlineStyles) restoreInlineStyles();
     if (restoreStylesheets) restoreStylesheets();
-    
-    console.error("PDF generation failed:", error);
-    throw error;
+    if (restoreGetComputedStyle) restoreGetComputedStyle();
   }
 }
