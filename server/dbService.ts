@@ -132,6 +132,36 @@ export async function saveImportMetadata(meta: ImportMetadata): Promise<void> {
   }
 }
 
+// Helper to self-heal and repair truncated or corrupted JSON files on-the-fly
+function tryRepairTruncatedJson(content: string): any[] | null {
+  let str = content.trim();
+  if (str.endsWith("]")) {
+    try {
+      return JSON.parse(str);
+    } catch {
+      // Fall through to repair if it still fails
+    }
+  }
+
+  // Try to repair backwards by finding the last closed curly brace '}'
+  let lastBraceIdx = str.lastIndexOf("}");
+  while (lastBraceIdx !== -1) {
+    const candidate = str.substring(0, lastBraceIdx + 1) + "\n]";
+    try {
+      const parsed = JSON.parse(candidate);
+      if (Array.isArray(parsed)) {
+        console.log(`[Self-Healing] Successfully repaired truncated JSON. Recovered ${parsed.length} rows.`);
+        return parsed;
+      }
+    } catch {
+      // Try the next '}' before this one
+      str = str.substring(0, lastBraceIdx);
+      lastBraceIdx = str.lastIndexOf("}");
+    }
+  }
+  return null;
+}
+
 // Get worksheet data
 export async function getWorksheetData(worksheetName: string): Promise<SalesRawRow[]> {
   if (inMemoryWorksheets[worksheetName]) {
@@ -153,7 +183,7 @@ export async function getWorksheetData(worksheetName: string): Promise<SalesRawR
     if (googleRows.length > 0) {
       inMemoryWorksheets[actualWorksheetName] = googleRows;
       try {
-        fs.writeFileSync(filePath, JSON.stringify(googleRows, null, 2), "utf-8");
+        fs.writeFileSync(filePath, JSON.stringify(googleRows), "utf-8");
       } catch (err) {
         console.warn(`Failed to write fetched worksheet ${actualWorksheetName} to file:`, err);
       }
@@ -163,7 +193,23 @@ export async function getWorksheetData(worksheetName: string): Promise<SalesRawR
   }
   try {
     const content = fs.readFileSync(filePath, "utf-8");
-    return JSON.parse(content) as SalesRawRow[];
+    try {
+      return JSON.parse(content) as SalesRawRow[];
+    } catch (parseError: any) {
+      console.warn(`[Self-Healing] JSON parse failed for worksheet ${worksheetName}. Attempting repair...`, parseError.message);
+      const repaired = tryRepairTruncatedJson(content);
+      if (repaired && repaired.length > 0) {
+        // Save the repaired compact JSON to prevent repairing again
+        try {
+          fs.writeFileSync(filePath, JSON.stringify(repaired), "utf-8");
+          console.log(`[Self-Healing] Saved repaired worksheet ${worksheetName} back to filesystem.`);
+        } catch (writeErr) {
+          console.error(`[Self-Healing] Failed to save repaired worksheet back to file:`, writeErr);
+        }
+        return repaired as SalesRawRow[];
+      }
+      throw parseError;
+    }
   } catch (error) {
     console.error(`Error reading worksheet ${worksheetName}:`, error);
     return [];
@@ -176,7 +222,7 @@ export async function saveWorksheetData(worksheetName: string, rows: SalesRawRow
   ensureDirectories();
   const filePath = path.join(DATA_DIR, `ws_${worksheetName}.json`);
   try {
-    fs.writeFileSync(filePath, JSON.stringify(rows, null, 2), "utf-8");
+    fs.writeFileSync(filePath, JSON.stringify(rows), "utf-8");
   } catch (error) {
     console.warn(`[Vercel/ReadOnly Fallback] Failed to write worksheet ${worksheetName} to filesystem. Saving in memory.`, error);
   }

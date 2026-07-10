@@ -197,6 +197,17 @@ function parseDateValue(val: any): string {
   }
   
   const str = String(val).trim();
+  
+  // Check if it is a stringified Excel date serial number
+  if (/^\d+$/.test(str)) {
+    const num = Number(str);
+    if (num > 30000 && num < 60000) {
+      const epoch = new Date(1899, 11, 30);
+      const date = new Date(epoch.getTime() + num * 24 * 60 * 60 * 1000);
+      return date.toISOString().split("T")[0];
+    }
+  }
+  
   // Match YYYY-MM-DD
   if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
     return str;
@@ -302,11 +313,29 @@ export function validateExcelData(fileName: string, rawRows: any[]): ValidationS
     }
   });
 
+  // Filter out empty rows (noise/blank rows at the bottom of the Excel sheet)
+  const nonNoiseRows = rawRows.filter((row) => {
+    if (!row) return false;
+    const normalized = normalizeRow(row, headerMapping);
+    
+    const postingDateRaw = normalized.postingDate;
+    const docNumRaw = normalized.documentNumber;
+    const itemNumRaw = normalized.itemNumber;
+    
+    const hasPostingDate = postingDateRaw !== undefined && postingDateRaw !== null && String(postingDateRaw).trim() !== "";
+    const hasDocNum = docNumRaw !== undefined && docNumRaw !== null && String(docNumRaw).trim() !== "";
+    const hasItemNum = itemNumRaw !== undefined && itemNumRaw !== null && String(itemNumRaw).trim() !== "";
+    
+    return hasPostingDate || hasDocNum || hasItemNum;
+  });
+
+  summary.rowCount = nonNoiseRows.length;
+
   // Calculate row duplication (based on stringified row representation)
   const seenRows = new Set<string>();
   const datesFound: string[] = [];
 
-  rawRows.forEach((row, idx) => {
+  nonNoiseRows.forEach((row, idx) => {
     // Stringify row to check duplicates
     const stringified = JSON.stringify(row);
     if (seenRows.has(stringified)) {
@@ -394,7 +423,23 @@ export function cleanAndMapRows(rawRows: any[], businessDate: string): SalesRawR
     }
   });
 
-  return rawRows.map((row) => {
+  // Filter out empty rows (noise/blank rows at the bottom of the Excel sheet)
+  const nonNoiseRows = rawRows.filter((row) => {
+    if (!row) return false;
+    const normalized = normalizeRow(row, headerMapping);
+    
+    const postingDateRaw = normalized.postingDate;
+    const docNumRaw = normalized.documentNumber;
+    const itemNumRaw = normalized.itemNumber;
+    
+    const hasPostingDate = postingDateRaw !== undefined && postingDateRaw !== null && String(postingDateRaw).trim() !== "";
+    const hasDocNum = docNumRaw !== undefined && docNumRaw !== null && String(docNumRaw).trim() !== "";
+    const hasItemNum = itemNumRaw !== undefined && itemNumRaw !== null && String(itemNumRaw).trim() !== "";
+    
+    return hasPostingDate || hasDocNum || hasItemNum;
+  });
+
+  return nonNoiseRows.map((row) => {
     const normalized = normalizeRow(row, headerMapping);
     
     // Parse values explicitly
