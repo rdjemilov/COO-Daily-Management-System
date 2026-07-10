@@ -162,7 +162,7 @@ export async function saveToGoogleSheets(worksheetName: string, rows: SalesRawRo
 // Seed Mock Data if Database is empty
 export function seedMockDataIfEmpty() {
   ensureDirectories();
-  if (fs.existsSync(METADATA_FILE) && getImportHistorySync().length > 0) {
+  if ((fs.existsSync(METADATA_FILE) && getImportHistorySync().length > 0) || inMemoryHistory.length > 0) {
     return;
   }
 
@@ -283,7 +283,12 @@ export function seedMockDataIfEmpty() {
 
     // Save worksheet rows
     const filePath = path.join(DATA_DIR, `ws_${date}.json`);
-    fs.writeFileSync(filePath, JSON.stringify(rows, null, 2), "utf-8");
+    try {
+      fs.writeFileSync(filePath, JSON.stringify(rows, null, 2), "utf-8");
+    } catch (e) {
+      console.warn(`[Vercel Fallback] Failed to write mock sheet ${date} to disk. Seeding in-memory.`, e);
+    }
+    inMemoryWorksheets[date] = rows;
 
     // Add import metadata record
     const meta: ImportMetadata = {
@@ -308,7 +313,19 @@ export function seedMockDataIfEmpty() {
   });
 
   // Save history metadata
-  fs.writeFileSync(METADATA_FILE, JSON.stringify(history, null, 2), "utf-8");
+  try {
+    fs.writeFileSync(METADATA_FILE, JSON.stringify(history, null, 2), "utf-8");
+  } catch (e) {
+    console.warn("[Vercel Fallback] Failed to write mock metadata to disk. Seeding in-memory.", e);
+  }
+
+  // Populate in-memory history
+  history.forEach((h) => {
+    if (!inMemoryHistory.some((item) => item.importId === h.importId)) {
+      inMemoryHistory.push(h);
+    }
+  });
+
   console.log("Mock sales worksheets seeded successfully.");
 }
 

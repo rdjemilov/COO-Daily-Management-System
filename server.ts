@@ -1,7 +1,6 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
-import { createServer as createViteServer } from "vite";
 import * as XLSX from "xlsx";
 import { seedMockDataIfEmpty, getImportHistory, saveToGoogleSheets, getWorksheetData, calculateFileHash, checkDuplicateFile } from "./server/dbService.js";
 import { validateExcelData, cleanAndMapRows } from "./server/validator.js";
@@ -171,10 +170,12 @@ const isProduction = process.env.NODE_ENV === "production" || process.env.VERCEL
 
 if (!isProduction) {
   // Local development: mount Vite asynchronously
-  const vitePromise = createViteServer({
-    server: { middlewareMode: true },
-    appType: "spa",
-  });
+  const vitePromise = import("vite").then(({ createServer: createViteServer }) =>
+    createViteServer({
+      server: { middlewareMode: true },
+      appType: "spa",
+    })
+  );
   app.use(async (req, res, next) => {
     try {
       const vite = await vitePromise;
