@@ -6,10 +6,18 @@ import { SalesRawRow, ImportMetadata } from "../src/shared/types.js";
 const DATA_DIR = path.join(process.cwd(), "data");
 const METADATA_FILE = path.join(DATA_DIR, "system_metadata.json");
 
+// In-memory fallbacks for serverless read-only platforms (Vercel)
+const inMemoryHistory: ImportMetadata[] = [];
+const inMemoryWorksheets: Record<string, SalesRawRow[]> = {};
+
 // Helper to make sure directory exists
 function ensureDirectories() {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+  } catch (e) {
+    console.warn("[Vercel/ReadOnly Fallback] Failed to create data directory.", e);
   }
 }
 
@@ -27,16 +35,33 @@ export async function checkDuplicateFile(fileHash: string): Promise<ImportMetada
 // Get import history (The _System worksheet)
 export async function getImportHistory(): Promise<ImportMetadata[]> {
   ensureDirectories();
-  if (!fs.existsSync(METADATA_FILE)) {
-    return [];
+  let fileHistory: ImportMetadata[] = [];
+  if (fs.existsSync(METADATA_FILE)) {
+    try {
+      const content = fs.readFileSync(METADATA_FILE, "utf-8");
+      fileHistory = JSON.parse(content) as ImportMetadata[];
+    } catch (error) {
+      console.error("Error reading metadata history from file:", error);
+    }
   }
-  try {
-    const content = fs.readFileSync(METADATA_FILE, "utf-8");
-    return JSON.parse(content) as ImportMetadata[];
-  } catch (error) {
-    console.error("Error reading metadata history:", error);
-    return [];
-  }
+  
+  // Combine file history with in-memory additions
+  const combined = [...fileHistory];
+  inMemoryHistory.forEach((item) => {
+    if (!combined.some((h) => h.importId === item.importId)) {
+      combined.push(item);
+    }
+  });
+  
+  // Apply any in-memory replacements / status changes
+  combined.forEach((item, idx) => {
+    const memMatch = inMemoryHistory.find((h) => h.importId === item.importId);
+    if (memMatch) {
+      combined[idx] = memMatch;
+    }
+  });
+
+  return combined;
 }
 
 // Save import history item
@@ -52,11 +77,34 @@ export async function saveImportMetadata(meta: ImportMetadata): Promise<void> {
     }
   }
   history.push(meta);
-  fs.writeFileSync(METADATA_FILE, JSON.stringify(history, null, 2), "utf-8");
+  
+  try {
+    fs.writeFileSync(METADATA_FILE, JSON.stringify(history, null, 2), "utf-8");
+  } catch (error) {
+    console.warn("[Vercel/ReadOnly Fallback] Failed to write metadata to filesystem. Saving in-memory.", error);
+    // Sync with in-memory store
+    const memIdx = inMemoryHistory.findIndex((h) => h.importId === meta.importId);
+    if (memIdx === -1) {
+      inMemoryHistory.push(meta);
+    } else {
+      inMemoryHistory[memIdx] = meta;
+    }
+    
+    if (meta.replacedImportId) {
+      const idx = inMemoryHistory.findIndex((h) => h.importId === meta.replacedImportId);
+      if (idx !== -1) {
+        inMemoryHistory[idx].importStatus = "failed";
+        inMemoryHistory[idx].errorMessage = `Replaced by Import ${meta.importId}`;
+      }
+    }
+  }
 }
 
 // Get worksheet data
 export async function getWorksheetData(worksheetName: string): Promise<SalesRawRow[]> {
+  if (inMemoryWorksheets[worksheetName]) {
+    return inMemoryWorksheets[worksheetName];
+  }
   ensureDirectories();
   const filePath = path.join(DATA_DIR, `ws_${worksheetName}.json`);
   if (!fs.existsSync(filePath)) {
@@ -73,9 +121,14 @@ export async function getWorksheetData(worksheetName: string): Promise<SalesRawR
 
 // Save worksheet data
 export async function saveWorksheetData(worksheetName: string, rows: SalesRawRow[]): Promise<void> {
+  inMemoryWorksheets[worksheetName] = rows;
   ensureDirectories();
   const filePath = path.join(DATA_DIR, `ws_${worksheetName}.json`);
-  fs.writeFileSync(filePath, JSON.stringify(rows, null, 2), "utf-8");
+  try {
+    fs.writeFileSync(filePath, JSON.stringify(rows, null, 2), "utf-8");
+  } catch (error) {
+    console.warn(`[Vercel/ReadOnly Fallback] Failed to write worksheet ${worksheetName} to filesystem. Saving in memory.`, error);
+  }
 }
 
 // Google Sheets Write Proxy
