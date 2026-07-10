@@ -3,7 +3,11 @@ import { Upload, FileSpreadsheet, CheckCircle, AlertTriangle, XCircle, RefreshCw
 import { ValidationSummary, ImportMetadata, SalesRawRow } from "../../../shared/types.js";
 import { formatCurrency, formatDate, formatFileSize, formatNumber } from "../../../shared/utils/format.js";
 
-export default function DatabaseManagement() {
+interface DatabaseManagementProps {
+  onImportSuccess?: (newDate: string) => void;
+}
+
+export default function DatabaseManagement({ onImportSuccess }: DatabaseManagementProps) {
   const [dragActive, setDragActive] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [fileBase64, setFileBase64] = useState<string>("");
@@ -164,6 +168,11 @@ export default function DatabaseManagement() {
         setValidation(null);
         setPreviewRows([]);
         fetchImportHistory();
+        
+        // Notify parent App component to refresh data
+        if (onImportSuccess) {
+          onImportSuccess(confirmedBusinessDate);
+        }
       } else {
         const err = await response.json();
         setImportResult({

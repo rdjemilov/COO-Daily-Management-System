@@ -188,8 +188,8 @@ export async function saveToGoogleSheets(worksheetName: string, rows: SalesRawRo
   await saveWorksheetData(worksheetName, rows);
   await saveImportMetadata(metadata);
 
-  const useMockData = process.env.USE_MOCK_DATA === "true" || !process.env.GOOGLE_CLIENT_EMAIL;
-  if (useMockData) {
+  const hasGoogleCreds = !!(process.env.GOOGLE_CLIENT_EMAIL && process.env.GOOGLE_PRIVATE_KEY && process.env.GOOGLE_SALES_SPREADSHEET_ID);
+  if (!hasGoogleCreds) {
     console.log(`[Database Simulator] Saved worksheet ${worksheetName} and system metadata successfully (Local/Mock Mode).`);
     return true;
   }
@@ -337,179 +337,18 @@ export async function saveToGoogleSheets(worksheetName: string, rows: SalesRawRo
     return true;
   } catch (e: any) {
     console.error("[Google Sheets API] Error syncing to Google Sheets:", e);
-    // Do not crash the application, return true as we saved locally successfully
-    return true;
+    // Since Google Sheets integration is active and failed, update metadata status to 'failed' and propagate the error.
+    metadata.importStatus = "failed";
+    metadata.errorMessage = `Google Sheets Sync failed: ${e.message || e}`;
+    await saveImportMetadata(metadata); // Overwrite / re-save with failed status
+    throw new Error(`Google Sheets synkroniseringsfejl: ${e.message || e}`);
   }
 }
 
 // Seed Mock Data if Database is empty
 export function seedMockDataIfEmpty() {
-  ensureDirectories();
-  if ((fs.existsSync(METADATA_FILE) && getImportHistorySync().length > 0) || inMemoryHistory.length > 0) {
-    return;
-  }
-
-  console.log("Seeding initial mock historical sales worksheets for Daily Management System...");
-
-  // Generate historical dates relative to July 10, 2026
-  const dates = [
-    "2026-07-10", // Friday (Today)
-    "2026-07-09", // Thursday (Yesterday)
-    "2026-07-08", // Wednesday
-    "2026-07-07", // Tuesday
-    "2026-07-06", // Monday
-    "2026-07-03", // Friday (1 week ago)
-    "2026-07-02", // Thursday (1 week ago)
-    "2026-06-26", // Friday (2 weeks ago)
-    "2026-06-12", // Friday (4 weeks ago)
-  ];
-
-  const products = [
-    { itemNumber: "1001", description: "Letmælk 1L Arla", price: 12.50, cost: 9.20, category: "Dairy" },
-    { itemNumber: "1002", description: "Sødmælk 1L Arla", price: 13.00, cost: 9.50, category: "Dairy" },
-    { itemNumber: "1003", description: "Smør LURPAK 250g", price: 28.50, cost: 22.10, category: "Dairy" },
-    { itemNumber: "2001", description: "Rugbrød Schulstad 1kg", price: 24.00, cost: 16.50, category: "Bread" },
-    { itemNumber: "2002", description: "Sødmælksbrød 500g", price: 18.00, cost: 12.00, category: "Bread" },
-    { itemNumber: "3001", description: "Kyllingebryst Dansk 1kg", price: 79.95, cost: 58.00, category: "Meat" },
-    { itemNumber: "3002", description: "Hakket Oksekød 500g 8-12%", price: 45.00, cost: 32.50, category: "Meat" },
-    { itemNumber: "4001", description: "Coca Cola 1.5L Flaske", price: 21.00, cost: 14.20, category: "Drinks" },
-    { itemNumber: "4002", description: "Faxe Kondi 1.5L Flaske", price: 20.00, cost: 13.80, category: "Drinks" },
-    // Loss items for Sales Without Profit
-    { itemNumber: "5001", description: "Svinekoteletter Spotpris 1kg", price: 49.00, cost: 55.00, category: "Meat" }, // Negative gross profit
-    { itemNumber: "5002", description: "Økologiske Æg 10stk", price: 25.00, cost: 25.00, category: "Dairy" }, // Zero profit
-    // Excluded items
-    { itemNumber: "PANT01", description: "Pant flaske A", price: 1.00, cost: 1.00, category: "Pant" },
-    { itemNumber: "PANT02", description: "Pant flaske B", price: 1.50, cost: 1.50, category: "Pant" },
-    { itemNumber: "9991", description: "Kasse med mælk (Returplast)", price: 45.00, cost: 45.00, category: "Packaging" },
-    { itemNumber: "9992", description: "Kortgebyr Nets", price: 1.50, cost: 0.00, category: "Fees" },
-    { itemNumber: "9993", description: "Indbetaling kontant", price: 500.00, cost: 500.00, category: "Payments" },
-  ];
-
-  const customers = [
-    { number: "C10001", name: "Dansk Supermarked" },
-    { number: "C10002", name: "Aarhus Kantineservice" },
-    { number: "C10003", name: "Københavns Delikatesse" },
-    { number: "C10004", name: "Fyn Food Club" },
-    { number: "C10005", name: "Nordic Hotel Group" },
-    { number: "C99999", name: "Kontant Salg - Aarhus" },
-    { number: "C99998", name: "Kontant København" },
-  ];
-
-  const locations = ["LOK01", "LOK02", "LOK03"];
-  const employees = ["Hans Nielsen", "Mette Jensen", "Ahmet Kaya", "Sofie Hansen"];
-
-  const history: ImportMetadata[] = [];
-
-  dates.forEach((date, dateIdx) => {
-    const importId = `IMP-${date.replace(/-/g, "")}-01`;
-    const rows: SalesRawRow[] = [];
-    const isToday = date === "2026-07-10";
-
-    // Base multiplier to create visual trend (Slight growth from 4 weeks ago to today)
-    const baseMultiplier = 1.0 + (dates.length - dateIdx) * 0.04;
-
-    // We will generate 30-40 transactions per day
-    const rowCount = Math.floor(35 * baseMultiplier);
-
-    let docCounter = 10000 + dateIdx * 100;
-
-    for (let i = 0; i < rowCount; i++) {
-      // Pick a random product
-      const product = products[Math.floor(Math.random() * products.length)];
-      // Pick a customer
-      const customer = customers[Math.floor(Math.random() * customers.length)];
-      // Pick a location
-      const location = locations[Math.floor(Math.random() * locations.length)];
-      // Pick employee
-      const employee = employees[Math.floor(Math.random() * employees.length)];
-
-      const quantity = Math.floor(Math.random() * 8) + 1;
-      const documentType = Math.random() > 0.08 ? "Faktura" : (Math.random() > 0.5 ? "Kreditnota" : "Salgsleverance");
-
-      // Calculate Sales Amount and Cost Amount
-      let salesAmount = parseFloat((product.price * quantity).toFixed(2));
-      let costAmount = parseFloat((product.cost * quantity).toFixed(2));
-
-      // Handle document type differences
-      if (documentType === "Kreditnota") {
-        salesAmount = -salesAmount;
-        costAmount = -costAmount;
-      } else if (documentType === "Salgsleverance") {
-        salesAmount = 0; // Deliveries don't have invoice values
-      }
-
-      // Generate a document number
-      const docNo = `INV-${docCounter + Math.floor(i / 1.5)}`;
-
-      const row: SalesRawRow = {
-        postingDate: date,
-        entryType: "Salg",
-        documentType: documentType,
-        documentNumber: docNo,
-        itemNumber: product.itemNumber,
-        description: product.description,
-        locationCode: location,
-        quantity: quantity,
-        invoicedQuantity: documentType === "Faktura" ? quantity : 0,
-        remainingQuantity: 0,
-        salesAmount: salesAmount,
-        costAmount: costAmount,
-        sourceType: "Kunde",
-        customerNumber: customer.number,
-        customerName: customer.name,
-        departmentCode: "AFD01",
-        employeeName: employee,
-      };
-
-      rows.push(row);
-    }
-
-    // Save worksheet rows
-    const filePath = path.join(DATA_DIR, `ws_${date}.json`);
-    try {
-      fs.writeFileSync(filePath, JSON.stringify(rows, null, 2), "utf-8");
-    } catch (e) {
-      console.warn(`[Vercel Fallback] Failed to write mock sheet ${date} to disk. Seeding in-memory.`, e);
-    }
-    inMemoryWorksheets[date] = rows;
-
-    // Add import metadata record
-    const meta: ImportMetadata = {
-      importId: importId,
-      businessModule: "Sales",
-      businessDate: date,
-      worksheetName: date,
-      uploadedFileName: `NAV_Sales_Export_${date}.xlsx`,
-      originalFileSize: 45200 + Math.floor(Math.random() * 5000),
-      importedRowCount: rows.length,
-      importedColumnCount: 17,
-      importedAt: new Date(new Date(date).getTime() + 8 * 3600000).toISOString(), // Imported in morning of that day
-      uploadedBy: "studiorasim@gmail.com",
-      importStatus: "success",
-      importVersion: 1,
-      fileHash: crypto.createHash("md5").update(`raw_${date}`).digest("hex"),
-      templateVersion: "1.0.0",
-      applicationVersion: "1.0.0",
-    };
-
-    history.push(meta);
-  });
-
-  // Save history metadata
-  try {
-    fs.writeFileSync(METADATA_FILE, JSON.stringify(history, null, 2), "utf-8");
-  } catch (e) {
-    console.warn("[Vercel Fallback] Failed to write mock metadata to disk. Seeding in-memory.", e);
-  }
-
-  // Populate in-memory history
-  history.forEach((h) => {
-    if (!inMemoryHistory.some((item) => item.importId === h.importId)) {
-      inMemoryHistory.push(h);
-    }
-  });
-
-  console.log("Mock sales worksheets seeded successfully.");
+  // Empty - mock data seeding is disabled to allow only user-uploaded data to persist.
+  console.log("Mock seeding is disabled. Waiting for user Excel imports.");
 }
 
 function getImportHistorySync(): ImportMetadata[] {

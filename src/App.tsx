@@ -41,7 +41,7 @@ export default function App() {
     loadDMSMetaData();
   }, []);
 
-  const loadDMSMetaData = async () => {
+  const loadDMSMetaData = async (newActiveDate?: string) => {
     setLoadingDates(true);
     setError(null);
     try {
@@ -58,11 +58,15 @@ export default function App() {
         setImportHistory(historyData);
       }
 
-      // If dates are available, set default active date to the newest (first item)
+      // If dates are available, set active date
       if (datesData.length > 0) {
+        const targetDate = (newActiveDate && datesData.includes(newActiveDate))
+          ? newActiveDate
+          : datesData[0];
+
         setFilter((prev) => ({
           ...prev,
-          businessDate: datesData[0],
+          businessDate: targetDate,
         }));
       }
     } catch (e: any) {
@@ -325,7 +329,12 @@ export default function App() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.2 }}
             >
-              <DatabaseManagement />
+              <DatabaseManagement
+                onImportSuccess={(newDate) => {
+                  loadDMSMetaData(newDate);
+                  setActiveModule("sales");
+                }}
+              />
             </motion.div>
           )}
         </div>

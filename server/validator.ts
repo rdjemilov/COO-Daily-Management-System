@@ -388,6 +388,11 @@ export function cleanAndMapRows(rawRows: any[], businessDate: string): SalesRawR
     const normalized = normalizeRow(row, headerMapping);
     
     // Parse values explicitly
+    let rawLoc = String(normalized.locationCode || "HOVED").trim();
+    if (rawLoc === "LOK01") {
+      rawLoc = "HOVED";
+    }
+
     const finalRow: SalesRawRow = {
       postingDate: parseDateValue(normalized.postingDate) || businessDate,
       entryType: String(normalized.entryType || "Salg").trim(),
@@ -395,7 +400,7 @@ export function cleanAndMapRows(rawRows: any[], businessDate: string): SalesRawR
       documentNumber: String(normalized.documentNumber || "").trim(),
       itemNumber: String(normalized.itemNumber || "").trim(),
       description: String(normalized.description || "").trim(),
-      locationCode: String(normalized.locationCode || "LOK01").trim(),
+      locationCode: rawLoc,
       quantity: parseNumericValue(normalized.quantity),
       invoicedQuantity: parseNumericValue(normalized.invoicedQuantity !== undefined ? normalized.invoicedQuantity : normalized.quantity),
       remainingQuantity: parseNumericValue(normalized.remainingQuantity || 0),
