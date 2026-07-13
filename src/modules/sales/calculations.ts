@@ -173,7 +173,10 @@ export function getTopCustomers(rows: SalesRawRow[], limit: number = 10, exclude
     };
   });
 
-  // Sort by sales descending
+  // Sort by sales descending (or largest credit note / most negative first if overall sales are negative)
+  if (grandTotalSales < 0) {
+    return list.sort((a, b) => a.salesAmount - b.salesAmount).slice(0, limit);
+  }
   return list.sort((a, b) => b.salesAmount - a.salesAmount).slice(0, limit);
 }
 
@@ -240,6 +243,10 @@ export function getTopProducts(rows: SalesRawRow[], limit: number = 10): Product
     };
   });
 
+  // Sort by sales descending (or largest credit note / most negative first if overall sales are negative)
+  if (grandTotalSales < 0) {
+    return list.sort((a, b) => a.salesAmount - b.salesAmount).slice(0, limit);
+  }
   return list.sort((a, b) => b.salesAmount - a.salesAmount).slice(0, limit);
 }
 

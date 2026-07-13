@@ -203,6 +203,11 @@ export default function SalesOverview({
     });
   }, [availableDates, allHistoricalRows, excludeCashCustomers]);
 
+  // Credit note rows calculation (kime ne kadar ne kreditnota yapilmis)
+  const creditNoteRows = useMemo(() => {
+    return currentRows.filter((r) => r.documentType === "Salgskreditnota");
+  }, [currentRows]);
+
   // 4. Rankings Data
   const topCustomersData = useMemo(() => {
     const list = getTopCustomers(currentRows, 100, excludeCashCustomers);
@@ -563,6 +568,74 @@ export default function SalesOverview({
           );
         })}
       </div>
+
+      {/* Credit Notes (Kreditnota) Section */}
+      {creditNoteRows.length > 0 && (
+        <div className="bg-white border border-rose-100 rounded-xl p-5 shadow-xs space-y-4 animate-in fade-in duration-200">
+          <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+            <div className="flex items-center gap-2">
+              <span className="text-lg">🧾</span>
+              <div>
+                <h3 className="text-sm font-bold text-gray-900">Udstødte Kreditnotaer (Kreditnota Detaljer)</h3>
+                <p className="text-[11px] text-gray-500">
+                  Kreditnotaer registreret for den valgte dato – kime ne kadar ne kreditnota yapılmış
+                </p>
+              </div>
+            </div>
+            <span className="bg-rose-50 text-rose-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-rose-100">
+              {creditNoteRows.length} kreditnotalinjer
+            </span>
+          </div>
+
+          <div className="overflow-x-auto text-xs border border-gray-100 rounded-lg">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-100 font-semibold text-gray-600">
+                  <th className="p-3">Kunde</th>
+                  <th className="p-3">Bilagsnr.</th>
+                  <th className="p-3">Produkt / Beskrivelse</th>
+                  <th className="p-3 text-right">Antal</th>
+                  <th className="p-3 text-right">Kostbeløb impact</th>
+                  <th className="p-3 text-right">Beløb (Omsætning)</th>
+                  <th className="p-3 text-right">Fortjeneste impact</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {creditNoteRows.map((row, idx) => {
+                  const profit = row.salesAmount + Math.abs(row.costAmount);
+                  return (
+                    <tr key={idx} className="hover:bg-rose-50/10 transition">
+                      <td className="p-3">
+                        <div className="font-semibold text-gray-800">{row.customerName}</div>
+                        <div className="text-[10px] text-gray-400 font-mono">{row.customerNumber}</div>
+                      </td>
+                      <td className="p-3 font-mono text-gray-600 font-medium">
+                        {row.documentNumber}
+                      </td>
+                      <td className="p-3">
+                        <div className="font-medium text-gray-800">{row.description}</div>
+                        <div className="text-[10px] text-gray-400 font-mono">Varenr: {row.itemNumber}</div>
+                      </td>
+                      <td className="p-3 text-right font-mono font-medium text-gray-700">
+                        {formatNumber(row.quantity)}
+                      </td>
+                      <td className="p-3 text-right text-gray-400 font-mono">
+                        {formatCurrency(Math.abs(row.costAmount))}
+                      </td>
+                      <td className="p-3 text-right font-bold text-rose-600 font-mono">
+                        {formatCurrency(row.salesAmount)}
+                      </td>
+                      <td className={`p-3 text-right font-semibold font-mono ${profit < 0 ? "text-rose-600" : "text-emerald-600"}`}>
+                        {formatCurrency(profit)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* 2. Interactive Interactive Charts Area */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
