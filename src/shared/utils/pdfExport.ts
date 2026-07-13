@@ -234,7 +234,11 @@ async function replaceOklchAndOklabInStylesAsync() {
     }
     for (const item of removedElements) {
       try {
-        item.parent.insertBefore(item.element, item.nextSibling);
+        if (item.nextSibling && item.nextSibling.parentNode === item.parent) {
+          item.parent.insertBefore(item.element, item.nextSibling);
+        } else {
+          item.parent.appendChild(item.element);
+        }
       } catch (e) {
         console.warn("Error restoring stylesheet element", e);
       }
@@ -268,76 +272,123 @@ function replaceInlineStyles(el: HTMLElement) {
 
 function patchGetComputedStyleGlobally(): () => void {
   const cleanups: (() => void)[] = [];
+  const patchedWindows = new Set<Window>();
 
   function patchWindow(win: Window) {
+    if (patchedWindows.has(win)) return;
+    patchedWindows.add(win);
+
     try {
       const proto = (win as any).CSSStyleDeclaration?.prototype || CSSStyleDeclaration.prototype;
       const originalGetPropertyValue = proto.getPropertyValue;
       proto.getPropertyValue = function (this: any, prop: string) {
-        const val = originalGetPropertyValue.call(this, prop);
-        if (typeof val === "string" && (val.toLowerCase().includes("oklch") || val.toLowerCase().includes("oklab"))) {
-          return convertOklchAndOklabText(val);
+        if (!this || typeof originalGetPropertyValue !== "function") {
+          return "";
         }
-        return val;
-      };
-
-      const originalGetComputedStyle = win.getComputedStyle;
-      win.getComputedStyle = function (this: any, elt: Element, pseudoElt?: string) {
-        const style = originalGetComputedStyle.call(this, elt, pseudoElt);
-        return new Proxy(style, {
-          get(target, prop, receiver) {
-            const val = Reflect.get(target, prop, receiver);
-            if (typeof val === "string" && (val.toLowerCase().includes("oklch") || val.toLowerCase().includes("oklab"))) {
-              return convertOklchAndOklabText(val);
-            }
-            if (typeof val === "function") {
-              return val.bind(target);
-            }
-            return val;
+        try {
+          const val = originalGetPropertyValue.call(this, prop);
+          if (typeof val === "string" && (val.toLowerCase().includes("oklch") || val.toLowerCase().includes("oklab"))) {
+            return convertOklchAndOklabText(val);
           }
-        });
+          return val;
+        } catch (err) {
+          return "";
+        }
       };
 
       cleanups.push(() => {
-        proto.getPropertyValue = originalGetPropertyValue;
-        win.getComputedStyle = originalGetComputedStyle;
+        try {
+          proto.getPropertyValue = originalGetPropertyValue;
+        } catch (e) {}
       });
     } catch (e) {
-      console.warn("Failed to patch window computed style", e);
+      console.warn("Failed to patch CSSStyleDeclaration prototype", e);
+    }
+
+    try {
+      const originalGetComputedStyle = win.getComputedStyle;
+      win.getComputedStyle = function (this: any, elt: Element, pseudoElt?: string) {
+        try {
+          // Bind call to `win` context directly to prevent "Illegal invocation" errors in strict mode
+          const style = originalGetComputedStyle.call(win, elt, pseudoElt);
+          return new Proxy(style, {
+            get(target, prop, receiver) {
+              const val = Reflect.get(target, prop, receiver);
+              if (typeof val === "string" && (val.toLowerCase().includes("oklch") || val.toLowerCase().includes("oklab"))) {
+                return convertOklchAndOklabText(val);
+              }
+              if (typeof val === "function") {
+                return val.bind(target);
+              }
+              return val;
+            }
+          });
+        } catch (err) {
+          try {
+            return originalGetComputedStyle(elt, pseudoElt);
+          } catch (innerErr) {
+            console.error("Failed getComputedStyle fallback:", innerErr);
+            throw innerErr;
+          }
+        }
+      };
+
+      cleanups.push(() => {
+        try {
+          win.getComputedStyle = originalGetComputedStyle;
+        } catch (e) {}
+      });
+    } catch (e) {
+      console.warn("Failed to patch getComputedStyle on window", e);
     }
   }
 
   // Patch main window
   patchWindow(window);
 
-  // Hook document.createElement to intercept iframe creation
+  // Monitor DOM insertions to dynamically patch any child iframes created by html2canvas
+  let observer: MutationObserver | null = null;
   try {
-    const originalCreateElement = document.createElement;
-    document.createElement = function (this: Document, tagName: string, options?: any) {
-      const el = originalCreateElement.call(this, tagName, options);
-      if (tagName.toLowerCase() === "iframe") {
-        const iframe = el as HTMLIFrameElement;
-        let patched = false;
-        Object.defineProperty(iframe, "contentWindow", {
-          get() {
-            const win = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, "contentWindow")?.get?.call(iframe);
-            if (win && !patched) {
-              patched = true;
-              patchWindow(win);
+    observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        mutation.addedNodes.forEach((node) => {
+          if (node.nodeName === "IFRAME" || node instanceof HTMLIFrameElement) {
+            try {
+              const iframe = node as HTMLIFrameElement;
+              const win = iframe.contentWindow;
+              if (win) {
+                patchWindow(win);
+              }
+              iframe.addEventListener("load", () => {
+                try {
+                  const loadedWin = iframe.contentWindow;
+                  if (loadedWin) {
+                    patchWindow(loadedWin);
+                  }
+                } catch (loadErr) {}
+              });
+            } catch (iframeErr) {
+              // Ignore potential cross-origin access issues
             }
-            return win;
-          },
-          configurable: true
+          }
         });
       }
-      return el;
-    };
+    });
+
+    observer.observe(document.documentElement || document.body || document, {
+      childList: true,
+      subtree: true,
+    });
 
     cleanups.push(() => {
-      document.createElement = originalCreateElement;
+      if (observer) {
+        try {
+          observer.disconnect();
+        } catch (e) {}
+      }
     });
   } catch (e) {
-    console.warn("Failed to hook document.createElement for oklch patch", e);
+    console.warn("Failed to start MutationObserver for iframe style patching", e);
   }
 
   return () => {
@@ -359,14 +410,22 @@ export async function exportElementToPDF(
   options: PDFExportOptions = {},
   onProgress?: (status: string) => void
 ) {
-  const { orientation = "landscape", title, subtitle } = options;
+  // Use portrait by default as requested by user
+  const { orientation = "portrait", title = "Danfoods DMS", subtitle } = options;
+
+  let restoreGetComputedStyle: (() => void) | null = null;
+  let restoreStylesheets: (() => void) | null = null;
+  let restoreInlineStyles: (() => void) | null = null;
 
   try {
     if (onProgress) onProgress("Forbereder rapport...");
 
-    // Store original scroll dimensions
-    const scrollWidth = element.scrollWidth || element.offsetWidth || 1200;
-    const scrollHeight = element.scrollHeight || element.offsetHeight || 800;
+    // Monkey patch getComputedStyle to intercept html2canvas style resolution
+    restoreGetComputedStyle = patchGetComputedStyleGlobally();
+
+    // Pre-process stylesheets and inline styles to replace oklch/oklab
+    restoreStylesheets = await replaceOklchAndOklabInStylesAsync();
+    restoreInlineStyles = replaceInlineStyles(element);
 
     if (onProgress) onProgress("Konverterer layout til billeder...");
 
@@ -376,9 +435,19 @@ export async function exportElementToPDF(
       useCORS: true,
       logging: false,
       backgroundColor: "#ffffff",
-      windowWidth: scrollWidth,
-      windowHeight: scrollHeight,
+      windowWidth: orientation === "portrait" ? 1024 : 1440, // standard width to fit A4 layout nicely
       onclone: (clonedDoc, clonedElement) => {
+        const targetElement = clonedElement as HTMLElement;
+        // Make the cloned element have a fixed standard width so it formats beautifully for A4 Portrait/Landscape
+        if (orientation === "portrait") {
+          targetElement.style.width = "1024px";
+          targetElement.style.maxWidth = "1024px";
+        } else {
+          targetElement.style.width = "1440px";
+          targetElement.style.maxWidth = "1440px";
+        }
+        targetElement.style.minWidth = "0px";
+
         // 1. Process style elements in clonedDoc synchronously
         const styles = Array.from(clonedDoc.querySelectorAll("style"));
         for (const styleEl of styles) {
@@ -446,17 +515,17 @@ export async function exportElementToPDF(
             replaceInlineStylesOnElement(child as HTMLElement);
           });
         };
-        replaceInlineStylesOnElement(clonedElement as HTMLElement);
+        replaceInlineStylesOnElement(targetElement);
 
         // 4. Hide scrollbars and elements with .no-print class
-        const noPrintElements = clonedElement.querySelectorAll(".no-print");
+        const noPrintElements = targetElement.querySelectorAll(".no-print");
         noPrintElements.forEach((el) => {
-          (el as HTMLElement).style.display = "none";
+          (el as HTMLElement).style.setProperty("display", "none", "important");
         });
 
         // 5. Ensure visible layout without scroll truncation
-        clonedElement.style.overflow = "visible";
-        clonedElement.style.maxHeight = "none";
+        targetElement.style.overflow = "visible";
+        targetElement.style.maxHeight = "none";
       }
     });
 
@@ -466,67 +535,105 @@ export async function exportElementToPDF(
     const isLandscape = orientation === "landscape";
     const pageWidth = isLandscape ? 297 : 210; // mm
     const pageHeight = isLandscape ? 210 : 297; // mm
+    const margin = 10; // mm
+    const printableWidth = pageWidth - 2 * margin; // 190 mm
+    const printableHeight = pageHeight - 2 * margin; // 277 mm
     
     const imgWidth = canvas.width;
     const imgHeight = canvas.height;
     
-    // Scale image to match page width
-    const imgHeightInPdfUnits = (imgHeight * pageWidth) / imgWidth;
+    // Scale image to match printable width exactly
+    const imgHeightInPdfUnits = (imgHeight * printableWidth) / imgWidth;
 
     const pdf = new jsPDF(orientation, "mm", "a4");
     
-    let heightLeft = imgHeightInPdfUnits;
-    let position = 0;
+    // Calculate total pages
+    const totalPages = Math.max(1, Math.ceil(imgHeightInPdfUnits / printableHeight));
     const imgData = canvas.toDataURL("image/jpeg", 0.95);
 
-    // Page 1
-    pdf.addImage(imgData, "JPEG", 0, position, pageWidth, imgHeightInPdfUnits, undefined, "FAST");
-    
-    // Add page numbers
-    let pageCount = 1;
-    pdf.setFontSize(8);
-    pdf.setTextColor(150, 150, 150);
-    pdf.text(
-      `Side ${pageCount} - Danfoods DMS`, 
-      pageWidth - 40, 
-      pageHeight - 8
-    );
+    for (let p = 0; p < totalPages; p++) {
+      if (p > 0) {
+        pdf.addPage();
+      }
 
-    heightLeft -= pageHeight;
+      // 1. Add image with correct y-offset inside the printable boundary
+      // Position shifts upwards by p * printableHeight
+      const yPosition = margin - p * printableHeight;
+      pdf.addImage(imgData, "JPEG", margin, yPosition, printableWidth, imgHeightInPdfUnits, undefined, "FAST");
 
-    // Handle subsequent pages
-    while (heightLeft > 0) {
-      position = heightLeft - imgHeightInPdfUnits; // shift image upwards
-      pdf.addPage();
-      pageCount++;
+      // 2. Draw white mask rectangles on all four sides to cover any overflow outside the printable area
+      pdf.setFillColor(255, 255, 255);
       
-      pdf.addImage(imgData, "JPEG", 0, position, pageWidth, imgHeightInPdfUnits, undefined, "FAST");
-      
-      // Page numbers on additional pages
+      // Top mask
+      pdf.rect(0, 0, pageWidth, margin, "F");
+      // Bottom mask
+      pdf.rect(0, pageHeight - margin, pageWidth, margin, "F");
+      // Left mask
+      pdf.rect(0, 0, margin, pageHeight, "F");
+      // Right mask
+      pdf.rect(pageWidth - margin, 0, margin, pageHeight, "F");
+
+      // 3. Add Header inside the top margin (y ~ 7mm)
+      pdf.setFont("Helvetica", "bold");
       pdf.setFontSize(8);
-      pdf.setTextColor(150, 150, 150);
-      pdf.text(
-        `Side ${pageCount} - Danfoods DMS`, 
-        pageWidth - 40, 
-        pageHeight - 8
-      );
+      pdf.setTextColor(100, 116, 139); // Slate-500
+      pdf.text(title.toUpperCase(), margin, 7);
 
-      heightLeft -= pageHeight;
+      if (subtitle) {
+        pdf.setFont("Helvetica", "normal");
+        pdf.setTextColor(148, 163, 184); // Slate-400
+        pdf.text(subtitle, margin + 40, 7);
+      }
+
+      // Add a thin separator line under header
+      pdf.setDrawColor(241, 245, 249); // Slate-100
+      pdf.setLineWidth(0.2);
+      pdf.line(margin, 8.5, pageWidth - margin, 8.5);
+
+      // 4. Add Footer inside the bottom margin (y ~ pageHeight - 4mm)
+      pdf.setFont("Helvetica", "normal");
+      pdf.setFontSize(7);
+      pdf.setTextColor(148, 163, 184); // Slate-400
+      pdf.text(`Side ${p + 1} af ${totalPages}`, margin, pageHeight - 4);
+      pdf.text(
+        "Danfoods DMS • Genereret: " + new Date().toLocaleDateString("da-DK") + " " + new Date().toLocaleTimeString("da-DK", { hour: "2-digit", minute: "2-digit" }),
+        pageWidth - margin,
+        pageHeight - 4,
+        { align: "right" }
+      );
     }
 
     if (onProgress) onProgress("Åbner PDF...");
-    
-    // Output as blob and open in a new tab
-    const blob = pdf.output("blob");
-    const blobUrl = URL.createObjectURL(blob);
-    
-    const newWindow = window.open(blobUrl, "_blank");
-    // Fallback: If blocked or not supported, download the file
-    if (!newWindow || newWindow.closed || typeof newWindow.closed === "undefined") {
+
+    let opened = false;
+    try {
+      const blob = pdf.output("blob");
+      const blobUrl = URL.createObjectURL(blob);
+      const newWindow = window.open(blobUrl, "_blank");
+      if (newWindow && !newWindow.closed && typeof newWindow.closed !== "undefined") {
+        opened = true;
+      }
+    } catch (err) {
+      console.warn("Failed to open PDF in a new tab, falling back to direct download:", err);
+    }
+
+    if (!opened) {
       pdf.save(`${filename}.pdf`);
     }
+
+    if (onProgress) onProgress("Eksport fuldført!");
   } catch (error) {
     console.error("PDF generation failed:", error);
     throw error;
+  } finally {
+    if (restoreGetComputedStyle) {
+      try { restoreGetComputedStyle(); } catch (err) { console.warn(err); }
+    }
+    if (restoreStylesheets) {
+      try { restoreStylesheets(); } catch (err) { console.warn(err); }
+    }
+    if (restoreInlineStyles) {
+      try { restoreInlineStyles(); } catch (err) { console.warn(err); }
+    }
   }
 }

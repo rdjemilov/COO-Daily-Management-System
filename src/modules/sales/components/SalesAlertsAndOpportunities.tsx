@@ -46,16 +46,23 @@ export default function SalesAlertsAndOpportunities({ filter }: SalesAlertsProps
 
   const handleExportPDF = async () => {
     if (!containerRef.current) return;
-    setPdfStatus("Forbereder PDF...");
+    setPdfStatus("Generating PDF...");
+    const dateStr = new Date().toISOString().split("T")[0];
     try {
       await exportElementToPDF(
         containerRef.current,
-        `danfoods_sales_alerts_${new Date().toISOString().split("T")[0]}`,
-        { orientation: "landscape" },
+        `Report_Sales_Alerts_${dateStr}`,
+        { 
+          orientation: "portrait",
+          title: "DANFOODS - ALERTS & MULIGHEDER",
+          subtitle: `Rapportdato: ${filter.businessDate || dateStr}`
+        },
         (status) => setPdfStatus(status)
       );
-      setPdfStatus(null);
+      setPdfStatus("Download completed");
+      setTimeout(() => setPdfStatus(null), 3000);
     } catch (err) {
+      console.error("PDF export failed:", err);
       setPdfStatus("Fejl under eksport");
       setTimeout(() => setPdfStatus(null), 3000);
     }

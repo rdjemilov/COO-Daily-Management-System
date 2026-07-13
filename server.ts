@@ -6,6 +6,7 @@ import { seedMockDataIfEmpty, getImportHistory, saveToGoogleSheets, getWorksheet
 import { validateExcelData, cleanAndMapRows } from "./server/validator.js";
 import { ImportMetadata } from "./src/shared/types.js";
 import { calculateSalesAlerts, getISOWeekString } from "./server/alerts/sales-alerts.service.js";
+import { handleAnalyse, handlePdf } from "./server/tab-vind/handler.js";
 
 const app = express();
 
@@ -99,6 +100,10 @@ app.get("/api/sales/alerts", async (req, res) => {
     res.status(500).json({ error: "Failed to load sales alerts: " + e.message });
   }
 });
+
+// API Routes: TAB/VIND Temporary Analysis & PDF Reporting
+app.post("/api/tab-vind/analyse", handleAnalyse);
+app.post("/api/tab-vind/pdf", handlePdf);
 
 // API Route: Upload and Validate Excel File
 app.post("/api/upload", async (req, res) => {
