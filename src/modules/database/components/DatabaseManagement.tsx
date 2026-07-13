@@ -22,6 +22,7 @@ export default function DatabaseManagement({ onImportSuccess }: DatabaseManageme
   const [duplicateInfo, setDuplicateInfo] = useState<ImportMetadata | null>(null);
   const [confirmedBusinessDate, setConfirmedBusinessDate] = useState("");
   const [replaceExisting, setReplaceExisting] = useState(false);
+  const [tilbudUge, setTilbudUge] = useState(false);
 
   // Import history logs
   const [importHistory, setImportHistory] = useState<ImportMetadata[]>([]);
@@ -153,6 +154,7 @@ export default function DatabaseManagement({ onImportSuccess }: DatabaseManageme
           businessDate: confirmedBusinessDate,
           replaceExisting,
           replaceImportId: duplicateInfo?.importId,
+          tilbudUge,
         }),
       });
 
@@ -167,6 +169,7 @@ export default function DatabaseManagement({ onImportSuccess }: DatabaseManageme
         setFile(null);
         setValidation(null);
         setPreviewRows([]);
+        setTilbudUge(false);
         fetchImportHistory();
         
         // Notify parent App component to refresh data
@@ -195,6 +198,7 @@ export default function DatabaseManagement({ onImportSuccess }: DatabaseManageme
     setValidation(null);
     setPreviewRows([]);
     setImportResult(null);
+    setTilbudUge(false);
   };
 
   return (
@@ -333,7 +337,7 @@ export default function DatabaseManagement({ onImportSuccess }: DatabaseManageme
               </div>
 
               {/* Status Header */}
-              <div className="p-5 border-b border-gray-100 grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="p-5 border-b border-gray-100 grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div className="flex items-center gap-3">
                   {validation.validationStatus === "valid" ? (
                     <div className="p-2 bg-emerald-50 rounded-lg text-emerald-600">
@@ -378,6 +382,21 @@ export default function DatabaseManagement({ onImportSuccess }: DatabaseManageme
                   <p className="text-sm font-semibold text-gray-900 mt-0.5">
                     {formatNumber(validation.rowCount)} rækker × {validation.columnCount} kolonner
                   </p>
+                </div>
+
+                <div className="flex flex-col justify-center">
+                  <span className="text-xs font-medium text-gray-500 mb-1">Kampagne / Tilbud</span>
+                  <label className="flex items-center gap-2 cursor-pointer text-sm font-medium text-gray-900 select-none bg-rose-50 border border-rose-100 rounded px-2.5 py-1.5 transition hover:bg-rose-100/70">
+                    <input
+                      type="checkbox"
+                      checked={tilbudUge}
+                      onChange={(e) => setTilbudUge(e.target.checked)}
+                      className="h-4 w-4 text-rose-600 rounded border-gray-300 focus:ring-rose-500 cursor-pointer"
+                    />
+                    <span className="flex items-center gap-1 text-xs font-bold text-rose-700">
+                      ⭐ Tilbud Uge (Kampagne)
+                    </span>
+                  </label>
                 </div>
               </div>
 
@@ -522,6 +541,11 @@ export default function DatabaseManagement({ onImportSuccess }: DatabaseManageme
                     <span className="font-semibold text-gray-900 bg-gray-50 px-2 py-0.5 rounded border border-gray-100 font-mono text-[10px]">
                       {item.worksheetName}
                     </span>
+                    {item.tilbudUge && (
+                      <span className="bg-rose-50 text-rose-700 font-bold px-1.5 py-0.5 rounded border border-rose-100 text-[9px] flex items-center gap-0.5">
+                        ⭐ Kampagne
+                      </span>
+                    )}
                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${
                       item.importStatus === "success" 
                         ? "bg-emerald-50 text-emerald-700" 

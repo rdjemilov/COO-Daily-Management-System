@@ -361,35 +361,12 @@ export async function exportElementToPDF(
 ) {
   const { orientation = "landscape", title, subtitle } = options;
 
-  let restoreStylesheets: (() => void) | null = null;
-  let restoreInlineStyles: (() => void) | null = null;
-  let restoreGetComputedStyle: (() => void) | null = null;
-
   try {
     if (onProgress) onProgress("Forbereder rapport...");
 
-    // Monkey patch getComputedStyle to intercept html2canvas style resolution
-    restoreGetComputedStyle = patchGetComputedStyleGlobally();
-
-    // Pre-process stylesheets and inline styles to replace oklch/oklab
-    restoreStylesheets = await replaceOklchAndOklabInStylesAsync();
-    restoreInlineStyles = replaceInlineStyles(element);
-
-    // Temporarily hide scrollbars and elements with .no-print class
-    const noPrintElements = element.querySelectorAll(".no-print");
-    const originalStyles = new Map<HTMLElement, string>();
-    
-    noPrintElements.forEach((el) => {
-      const htmlEl = el as HTMLElement;
-      originalStyles.set(htmlEl, htmlEl.style.display);
-      htmlEl.style.display = "none";
-    });
-
-    // Store original height/width/overflow to avoid scroll truncation
-    const originalOverflow = element.style.overflow;
-    const originalMaxHeight = element.style.maxHeight;
-    element.style.overflow = "visible";
-    element.style.maxHeight = "none";
+    // Store original scroll dimensions
+    const scrollWidth = element.scrollWidth || element.offsetWidth || 1200;
+    const scrollHeight = element.scrollHeight || element.offsetHeight || 800;
 
     if (onProgress) onProgress("Konverterer layout til billeder...");
 
@@ -399,31 +376,89 @@ export async function exportElementToPDF(
       useCORS: true,
       logging: false,
       backgroundColor: "#ffffff",
-      windowWidth: element.scrollWidth,
-      windowHeight: element.scrollHeight,
-    });
+      windowWidth: scrollWidth,
+      windowHeight: scrollHeight,
+      onclone: (clonedDoc, clonedElement) => {
+        // 1. Process style elements in clonedDoc synchronously
+        const styles = Array.from(clonedDoc.querySelectorAll("style"));
+        for (const styleEl of styles) {
+          try {
+            let cssText = styleEl.textContent || "";
+            if (!cssText) {
+              const sheet = styleEl.sheet;
+              if (sheet) {
+                try {
+                  cssText = Array.from(sheet.cssRules).map(r => r.cssText).join("\n");
+                } catch (e) {
+                  // ignore
+                }
+              }
+            }
 
-    // Restore original CSS styles immediately
-    element.style.overflow = originalOverflow;
-    element.style.maxHeight = originalMaxHeight;
-    noPrintElements.forEach((el) => {
-      const htmlEl = el as HTMLElement;
-      htmlEl.style.display = originalStyles.get(htmlEl) || "";
-    });
+            const lowerCss = cssText.toLowerCase();
+            if (cssText && (lowerCss.includes("oklch") || lowerCss.includes("oklab"))) {
+              const processedCss = convertOklchAndOklabText(cssText);
+              
+              // Create a new style element in clonedDoc
+              const newStyle = clonedDoc.createElement("style");
+              newStyle.textContent = processedCss;
+              clonedDoc.head.appendChild(newStyle);
+              
+              // Remove the old style element from clonedDoc
+              styleEl.remove();
+            }
+          } catch (err) {
+            console.warn("Error processing cloned style", err);
+          }
+        }
 
-    // Restore oklch colors for standard interactive browser display
-    if (restoreInlineStyles) {
-      restoreInlineStyles();
-      restoreInlineStyles = null;
-    }
-    if (restoreStylesheets) {
-      restoreStylesheets();
-      restoreStylesheets = null;
-    }
-    if (restoreGetComputedStyle) {
-      restoreGetComputedStyle();
-      restoreGetComputedStyle = null;
-    }
+        // 2. Process adoptedStyleSheets in clonedDoc if they exist
+        const clonedAdopted = (clonedDoc as any).adoptedStyleSheets;
+        if (clonedAdopted && clonedAdopted.length > 0) {
+          try {
+            const newAdopted = clonedAdopted.map((sheet: any) => {
+              try {
+                const cssText = Array.from(sheet.cssRules).map((r: any) => r.cssText).join("\n");
+                if (cssText.toLowerCase().includes("oklch") || cssText.toLowerCase().includes("oklab")) {
+                  const processedCss = convertOklchAndOklabText(cssText);
+                  const newSheet = new (clonedDoc.defaultView as any).CSSStyleSheet();
+                  newSheet.replaceSync(processedCss);
+                  return newSheet;
+                }
+              } catch (innerE) {
+                // ignore
+              }
+              return sheet;
+            });
+            (clonedDoc as any).adoptedStyleSheets = newAdopted;
+          } catch (e) {
+            console.warn("Could not sanitize adopted style sheets on cloned doc", e);
+          }
+        }
+
+        // 3. Process inline styles on clonedElement and its descendants
+        const replaceInlineStylesOnElement = (el: HTMLElement) => {
+          const styleAttr = el.getAttribute("style");
+          if (styleAttr && (styleAttr.toLowerCase().includes("oklch") || styleAttr.toLowerCase().includes("oklab"))) {
+            el.setAttribute("style", convertOklchAndOklabText(styleAttr));
+          }
+          Array.from(el.children).forEach((child) => {
+            replaceInlineStylesOnElement(child as HTMLElement);
+          });
+        };
+        replaceInlineStylesOnElement(clonedElement as HTMLElement);
+
+        // 4. Hide scrollbars and elements with .no-print class
+        const noPrintElements = clonedElement.querySelectorAll(".no-print");
+        noPrintElements.forEach((el) => {
+          (el as HTMLElement).style.display = "none";
+        });
+
+        // 5. Ensure visible layout without scroll truncation
+        clonedElement.style.overflow = "visible";
+        clonedElement.style.maxHeight = "none";
+      }
+    });
 
     if (onProgress) onProgress("Opretter PDF-sider...");
 
@@ -479,15 +514,19 @@ export async function exportElementToPDF(
       heightLeft -= pageHeight;
     }
 
-    if (onProgress) onProgress("Færdiggør fil...");
-    pdf.save(`${filename}.pdf`);
+    if (onProgress) onProgress("Åbner PDF...");
+    
+    // Output as blob and open in a new tab
+    const blob = pdf.output("blob");
+    const blobUrl = URL.createObjectURL(blob);
+    
+    const newWindow = window.open(blobUrl, "_blank");
+    // Fallback: If blocked or not supported, download the file
+    if (!newWindow || newWindow.closed || typeof newWindow.closed === "undefined") {
+      pdf.save(`${filename}.pdf`);
+    }
   } catch (error) {
     console.error("PDF generation failed:", error);
     throw error;
-  } finally {
-    // Ensure styles are restored even if generation crashes
-    if (restoreInlineStyles) restoreInlineStyles();
-    if (restoreStylesheets) restoreStylesheets();
-    if (restoreGetComputedStyle) restoreGetComputedStyle();
   }
 }

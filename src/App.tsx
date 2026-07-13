@@ -345,6 +345,8 @@ export default function App() {
                       availableDates={availableDates}
                       compareFourDatesEnabled={compareFourDatesEnabled}
                       compareDates={compareDates}
+                      activeDocumentTypes={filter.documentType}
+                      activeDate={filter.businessDate}
                     />
                   )}
 

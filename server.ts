@@ -151,7 +151,7 @@ app.post("/api/upload", async (req, res) => {
 // API Route: Execute and commit raw import
 app.post("/api/import", async (req, res) => {
   try {
-    const { fileBase64, fileName, fileHash, businessDate, replaceExisting, replaceImportId } = req.body;
+    const { fileBase64, fileName, fileHash, businessDate, replaceExisting, replaceImportId, tilbudUge } = req.body;
     
     if (!fileBase64 || !fileName || !businessDate) {
       return res.status(400).json({ error: "Missing required import payloads" });
@@ -185,6 +185,7 @@ app.post("/api/import", async (req, res) => {
       fileHash: fileHash || calculateFileHash(buffer),
       templateVersion: "1.0.0",
       applicationVersion: "1.0.0",
+      tilbudUge: !!tilbudUge,
     };
 
     if (replaceExisting && replaceImportId) {

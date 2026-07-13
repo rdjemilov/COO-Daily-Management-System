@@ -80,6 +80,26 @@ export default function SalesFilterBar({
 }: SalesFilterBarProps) {
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const calendarRef = useRef<HTMLDivElement>(null);
+  const [campaignDates, setCampaignDates] = useState<string[]>([]);
+
+  // Fetch campaign dates from imports list
+  useEffect(() => {
+    const fetchCampaigns = async () => {
+      try {
+        const res = await fetch("/api/imports");
+        if (res.ok) {
+          const history = await res.json();
+          const dates = history
+            .filter((item: any) => item.importStatus === "success" && item.tilbudUge)
+            .map((item: any) => item.businessDate);
+          setCampaignDates(dates);
+        }
+      } catch (e) {
+        console.error("Failed to load campaign dates inside filter bar:", e);
+      }
+    };
+    fetchCampaigns();
+  }, [availableDates]);
 
   const activeDateObj = filter.businessDate ? new Date(filter.businessDate) : new Date();
   const [currentMonth, setCurrentMonth] = useState({
@@ -230,7 +250,7 @@ export default function SalesFilterBar({
                             setIsCalendarOpen(false);
                           }}
                           className={`
-                            text-xs h-8 w-8 rounded-md flex items-center justify-center transition-all cursor-pointer border
+                            relative text-xs h-8 w-8 rounded-md flex items-center justify-center transition-all cursor-pointer border
                             ${!isCurrentMonth ? "opacity-30" : ""}
                             ${
                               isSelected
@@ -244,22 +264,33 @@ export default function SalesFilterBar({
                           `}
                           title={
                             hasData
-                              ? `${formatDate(dateStr)} - Aktiv dagsdata`
+                              ? `${formatDate(dateStr)} - Aktiv dagsdata${campaignDates.includes(dateStr) ? " (Kampagneuge)" : ""}`
                               : `${formatDate(dateStr)} - Ingen data`
                           }
                         >
-                          {dayDate.getDate()}
+                          <span>{dayDate.getDate()}</span>
+                          {campaignDates.includes(dateStr) && (
+                            <span className="absolute top-0.5 right-0.5 text-[7px]" title="Kampagneuge / Tilbud Uge">
+                              ⭐
+                            </span>
+                          )}
                         </button>
                       );
                     })}
                   </div>
 
                   {/* Legend Help Indicator */}
-                  <div className="mt-3 pt-2.5 border-t border-gray-100 flex items-center justify-between text-[10px] text-gray-500">
+                  <div className="mt-3 pt-2.5 border-t border-gray-100 flex flex-wrap items-center justify-between gap-y-1.5 text-[10px] text-gray-500">
                     <div className="flex items-center gap-1">
                       <span className="h-2 w-2 rounded-full bg-emerald-500"></span>
                       <span>Med data</span>
                     </div>
+                    {campaignDates.length > 0 && (
+                      <div className="flex items-center gap-1">
+                        <span>⭐</span>
+                        <span>Kampagne</span>
+                      </div>
+                    )}
                     <div className="flex items-center gap-1">
                       <span className="h-2 w-2 rounded-full bg-rose-400"></span>
                       <span>Uden data</span>

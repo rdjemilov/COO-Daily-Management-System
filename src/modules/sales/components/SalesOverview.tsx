@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef } from "react";
 import { Info, ChevronUp, ChevronDown, Award, TrendingUp, DollarSign, Percent, FileText, Users, ShoppingBag, Eye, X, ArrowUpDown, Calendar, HelpCircle, Check, Search, Download } from "lucide-react";
 import { SalesRawRow, KPIMetric, CustomerSummary, ProductSummary } from "../../../shared/types.js";
 import { formatCurrency, formatDate, formatNumber, formatPercentage, getWeekdayLabel } from "../../../shared/utils/format.js";
-import { calculateSalesMetrics, getTopCustomers, getTopProducts, isCashCustomer, isExcludedItem } from "../calculations.js";
+import { calculateSalesMetrics, getTopCustomers, getTopProducts, isCashCustomer, isExcludedItem, getComparisonDate } from "../calculations.js";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as ChartTooltip, ResponsiveContainer, AreaChart, Area, Legend } from "recharts";
 import { exportElementToPDF } from "../../../shared/utils/pdfExport.ts";
 
@@ -14,6 +14,15 @@ interface SalesOverviewProps {
   availableDates: string[];
   compareFourDatesEnabled?: boolean;
   compareDates?: string[];
+  activeDocumentTypes?: string[];
+  activeDate?: string;
+}
+
+interface ExtendedKPIMetric extends KPIMetric {
+  weekAgoValue?: number;
+  weekAgoDiffPercentage?: number;
+  weekAgoDirection?: "up" | "down" | "neutral";
+  weekAgoStatus?: "positive" | "negative" | "neutral";
 }
 
 export default function SalesOverview({
@@ -24,6 +33,8 @@ export default function SalesOverview({
   availableDates,
   compareFourDatesEnabled = false,
   compareDates = [],
+  activeDocumentTypes = [],
+  activeDate,
 }: SalesOverviewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [pdfStatus, setPdfStatus] = useState<string | null>(null);
@@ -63,8 +74,23 @@ export default function SalesOverview({
     return calculateSalesMetrics(comparisonRows, excludeCashCustomers);
   }, [comparisonRows, excludeCashCustomers]);
 
+  const weekAgoDate = useMemo(() => {
+    const resolvedActive = activeDate || currentRows[0]?.postingDate || (availableDates[0] || "");
+    if (!resolvedActive) return null;
+    return getComparisonDate(resolvedActive, availableDates, "week_ago");
+  }, [activeDate, currentRows, availableDates]);
+
+  const weekAgoRows = useMemo(() => {
+    if (!weekAgoDate) return [];
+    return allHistoricalRows[weekAgoDate] || [];
+  }, [allHistoricalRows, weekAgoDate]);
+
+  const weekAgoMetrics = useMemo(() => {
+    return calculateSalesMetrics(weekAgoRows, excludeCashCustomers);
+  }, [weekAgoRows, excludeCashCustomers]);
+
   // 2. Generate KPI Data Models for cards (Section 20)
-  const kpiCards = useMemo<KPIMetric[]>(() => {
+  const kpiCards = useMemo<ExtendedKPIMetric[]>(() => {
     const makeKpi = (
       id: string,
       label: string,
@@ -72,8 +98,9 @@ export default function SalesOverview({
       comp: number | undefined,
       formatter: (v: number) => string,
       tooltip: string,
-      reverseStatus: boolean = false
-    ): KPIMetric => {
+      reverseStatus: boolean = false,
+      weekAgoComp: number | undefined = undefined
+    ): ExtendedKPIMetric => {
       const diffAbs = comp !== undefined ? curr - comp : 0;
       const diffPct = comp !== undefined && comp !== 0 ? (diffAbs / comp) * 100 : 0;
       
@@ -88,6 +115,25 @@ export default function SalesOverview({
         status = reverseStatus ? "positive" : "negative";
       }
 
+      // Week ago calculations
+      let weekAgoDiffPercentage: number | undefined = undefined;
+      let weekAgoDirection: "up" | "down" | "neutral" = "neutral";
+      let weekAgoStatus: "positive" | "negative" | "neutral" = "neutral";
+
+      if (weekAgoComp !== undefined) {
+        const waDiffAbs = curr - weekAgoComp;
+        weekAgoDiffPercentage = weekAgoComp !== 0 ? parseFloat(((waDiffAbs / weekAgoComp) * 100).toFixed(1)) : 0;
+
+        if (waDiffAbs > 0.01) weekAgoDirection = "up";
+        else if (waDiffAbs < -0.01) weekAgoDirection = "down";
+
+        if (weekAgoDirection === "up") {
+          weekAgoStatus = reverseStatus ? "negative" : "positive";
+        } else if (weekAgoDirection === "down") {
+          weekAgoStatus = reverseStatus ? "positive" : "negative";
+        }
+      }
+
       return {
         id,
         label,
@@ -100,6 +146,10 @@ export default function SalesOverview({
         direction: dir,
         status,
         tooltip,
+        weekAgoValue: weekAgoComp,
+        weekAgoDiffPercentage,
+        weekAgoDirection,
+        weekAgoStatus,
       };
     };
 
@@ -110,7 +160,9 @@ export default function SalesOverview({
         currentMetrics.totalSales,
         comparisonMetrics.totalSales,
         formatCurrency,
-        "Total omsætning i DKK baseret på faktiske salgsbeløb, ekskluderet pant/gebyrer."
+        "Total omsætning i DKK baseret på faktiske salgsbeløb, ekskluderet pant/gebyrer.",
+        false,
+        weekAgoMetrics.totalSales
       ),
       makeKpi(
         "profit",
@@ -118,7 +170,9 @@ export default function SalesOverview({
         currentMetrics.totalGrossProfit,
         comparisonMetrics.totalGrossProfit,
         formatCurrency,
-        "Omsætning minus normaliseret kostpris (absolut værdi af kostbeløb)."
+        "Omsætning minus normaliseret kostpris (absolut værdi af kostbeløb).",
+        false,
+        weekAgoMetrics.totalGrossProfit
       ),
       makeKpi(
         "margin",
@@ -126,7 +180,9 @@ export default function SalesOverview({
         currentMetrics.grossMarginPercentage,
         comparisonMetrics.grossMarginPercentage,
         formatPercentage,
-        "Bruttofortjeneste divideret med omsætning i procent."
+        "Bruttofortjeneste divideret med omsætning i procent.",
+        false,
+        weekAgoMetrics.grossMarginPercentage
       ),
       makeKpi(
         "invoices",
@@ -134,7 +190,9 @@ export default function SalesOverview({
         currentMetrics.uniqueInvoices,
         comparisonMetrics.uniqueInvoices,
         (v) => formatNumber(v, 0),
-        "Antal unikke bilagsnumre."
+        "Antal unikke bilagsnumre.",
+        false,
+        weekAgoMetrics.uniqueInvoices
       ),
       makeKpi(
         "customers",
@@ -142,7 +200,9 @@ export default function SalesOverview({
         currentMetrics.uniqueCustomers,
         comparisonMetrics.uniqueCustomers,
         (v) => formatNumber(v, 0),
-        "Unikke kunde kildenumre."
+        "Unikke kunde kildenumre.",
+        false,
+        weekAgoMetrics.uniqueCustomers
       ),
       makeKpi(
         "deliveries",
@@ -150,7 +210,9 @@ export default function SalesOverview({
         currentMetrics.deliveryCustomerCount,
         comparisonMetrics.deliveryCustomerCount,
         (v) => formatNumber(v, 0),
-        "Kunder med registrerede Salgsleverance leveringsbilag."
+        "Kunder med registrerede Salgsleverance leveringsbilag.",
+        false,
+        weekAgoMetrics.deliveryCustomerCount
       ),
       makeKpi(
         "avg_invoice",
@@ -158,7 +220,9 @@ export default function SalesOverview({
         currentMetrics.averageInvoiceValue,
         comparisonMetrics.averageInvoiceValue,
         formatCurrency,
-        "Total omsætning divideret med antal unikke fakturaer."
+        "Total omsætning divideret med antal unikke fakturaer.",
+        false,
+        weekAgoMetrics.averageInvoiceValue
       ),
       makeKpi(
         "avg_margin",
@@ -166,10 +230,12 @@ export default function SalesOverview({
         currentMetrics.grossMarginPercentage, // standard weighted
         comparisonMetrics.grossMarginPercentage,
         formatPercentage,
-        "Total bruttofortjeneste divideret med total omsætning."
+        "Total bruttofortjeneste divideret med total omsætning.",
+        false,
+        weekAgoMetrics.grossMarginPercentage
       ),
     ];
-  }, [currentMetrics, comparisonMetrics]);
+  }, [currentMetrics, comparisonMetrics, weekAgoMetrics]);
 
   // side-by-side 4 dates metrics calculation
   const fourDatesMetrics = useMemo(() => {
@@ -543,19 +609,19 @@ export default function SalesOverview({
               </div>
 
               {kpi.comparisonValue !== undefined && (
-                <div className="mt-2.5 flex items-center justify-between text-xs pt-2 border-t border-gray-50">
+                <div className="mt-2.5 flex items-center justify-between text-[11px] pt-1.5 border-t border-gray-50">
                   <span className="text-gray-400 font-medium truncate max-w-[120px] sm:max-w-none">
-                    vs. {comparisonDateLabel}
+                    vs. {comparisonDateLabel} {!compareFourDatesEnabled ? "(i går)" : ""}
                   </span>
-                  <div className={`flex items-center gap-1.5 font-semibold ${
+                  <div className={`flex items-center gap-1 font-semibold ${
                     kpi.direction === "neutral"
                       ? "text-gray-500"
                       : isPositive
-                      ? "text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded"
-                      : "text-red-600 bg-red-50 px-1.5 py-0.5 rounded"
+                      ? "text-emerald-600 bg-emerald-50 px-1 py-0.5 rounded"
+                      : "text-red-600 bg-red-50 px-1 py-0.5 rounded"
                   }`}>
                     {kpi.direction !== "neutral" && (
-                      isUp ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />
+                      isUp ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />
                     )}
                     <span>
                       {isUp ? "+" : ""}
@@ -564,78 +630,39 @@ export default function SalesOverview({
                   </div>
                 </div>
               )}
+
+              {!compareFourDatesEnabled && weekAgoDate && kpi.weekAgoValue !== undefined && (
+                <div className="mt-1 flex items-center justify-between text-[11px] pt-1">
+                  <span className="text-gray-400 font-medium truncate max-w-[120px] sm:max-w-none">
+                    vs. {formatDate(weekAgoDate)} (1 uge)
+                  </span>
+                  {(() => {
+                    const isWaUp = kpi.weekAgoDirection === "up";
+                    const isWaPositive = kpi.weekAgoStatus === "positive";
+                    return (
+                      <div className={`flex items-center gap-1 font-semibold ${
+                        kpi.weekAgoDirection === "neutral"
+                          ? "text-gray-500"
+                          : isWaPositive
+                          ? "text-emerald-600 bg-emerald-50 px-1 py-0.5 rounded"
+                          : "text-red-600 bg-red-50 px-1 py-0.5 rounded"
+                      }`}>
+                        {kpi.weekAgoDirection !== "neutral" && (
+                          isWaUp ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />
+                        )}
+                        <span>
+                          {isWaUp ? "+" : ""}
+                          {kpi.weekAgoDiffPercentage}%
+                        </span>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
             </div>
           );
         })}
       </div>
-
-      {/* Credit Notes (Kreditnota) Section */}
-      {creditNoteRows.length > 0 && (
-        <div className="bg-white border border-rose-100 rounded-xl p-5 shadow-xs space-y-4 animate-in fade-in duration-200">
-          <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-            <div className="flex items-center gap-2">
-              <span className="text-lg">🧾</span>
-              <div>
-                <h3 className="text-sm font-bold text-gray-900">Udstødte Kreditnotaer (Kreditnota Detaljer)</h3>
-                <p className="text-[11px] text-gray-500">
-                  Kreditnotaer registreret for den valgte dato – kime ne kadar ne kreditnota yapılmış
-                </p>
-              </div>
-            </div>
-            <span className="bg-rose-50 text-rose-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-rose-100">
-              {creditNoteRows.length} kreditnotalinjer
-            </span>
-          </div>
-
-          <div className="overflow-x-auto text-xs border border-gray-100 rounded-lg">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-100 font-semibold text-gray-600">
-                  <th className="p-3">Kunde</th>
-                  <th className="p-3">Bilagsnr.</th>
-                  <th className="p-3">Produkt / Beskrivelse</th>
-                  <th className="p-3 text-right">Antal</th>
-                  <th className="p-3 text-right">Kostbeløb impact</th>
-                  <th className="p-3 text-right">Beløb (Omsætning)</th>
-                  <th className="p-3 text-right">Fortjeneste impact</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {creditNoteRows.map((row, idx) => {
-                  const profit = row.salesAmount + Math.abs(row.costAmount);
-                  return (
-                    <tr key={idx} className="hover:bg-rose-50/10 transition">
-                      <td className="p-3">
-                        <div className="font-semibold text-gray-800">{row.customerName}</div>
-                        <div className="text-[10px] text-gray-400 font-mono">{row.customerNumber}</div>
-                      </td>
-                      <td className="p-3 font-mono text-gray-600 font-medium">
-                        {row.documentNumber}
-                      </td>
-                      <td className="p-3">
-                        <div className="font-medium text-gray-800">{row.description}</div>
-                        <div className="text-[10px] text-gray-400 font-mono">Varenr: {row.itemNumber}</div>
-                      </td>
-                      <td className="p-3 text-right font-mono font-medium text-gray-700">
-                        {formatNumber(row.quantity)}
-                      </td>
-                      <td className="p-3 text-right text-gray-400 font-mono">
-                        {formatCurrency(Math.abs(row.costAmount))}
-                      </td>
-                      <td className="p-3 text-right font-bold text-rose-600 font-mono">
-                        {formatCurrency(row.salesAmount)}
-                      </td>
-                      <td className={`p-3 text-right font-semibold font-mono ${profit < 0 ? "text-rose-600" : "text-emerald-600"}`}>
-                        {formatCurrency(profit)}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
 
       {/* 2. Interactive Interactive Charts Area */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -1014,6 +1041,74 @@ export default function SalesOverview({
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Credit Notes (Kreditnota) Section at the Bottom */}
+      {creditNoteRows.length > 0 && activeDocumentTypes.includes("Salgskreditnota") && (
+        <div className="bg-white border border-rose-100 rounded-xl p-5 shadow-xs space-y-4 mt-6 animate-in fade-in duration-200">
+          <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+            <div className="flex items-center gap-2">
+              <span className="text-lg">🧾</span>
+              <div>
+                <h3 className="text-sm font-bold text-gray-900">Udstødte Kreditnotaer (Kreditnota Detaljer)</h3>
+                <p className="text-[11px] text-gray-500">
+                  Kreditnotaer registreret for den valgte dato – kime ne kadar ne kreditnota yapılmış
+                </p>
+              </div>
+            </div>
+            <span className="bg-rose-50 text-rose-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-rose-100">
+              {creditNoteRows.length} kreditnotalinjer
+            </span>
+          </div>
+
+          <div className="overflow-x-auto text-xs border border-gray-100 rounded-lg">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-100 font-semibold text-gray-600">
+                  <th className="p-3">Kunde</th>
+                  <th className="p-3">Bilagsnr.</th>
+                  <th className="p-3">Produkt / Beskrivelse</th>
+                  <th className="p-3 text-right">Antal</th>
+                  <th className="p-3 text-right">Kostbeløb impact</th>
+                  <th className="p-3 text-right">Beløb (Omsætning)</th>
+                  <th className="p-3 text-right">Fortjeneste impact</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {creditNoteRows.map((row, idx) => {
+                  const profit = row.salesAmount + Math.abs(row.costAmount);
+                  return (
+                    <tr key={idx} className="hover:bg-rose-50/10 transition">
+                      <td className="p-3">
+                        <div className="font-semibold text-gray-800">{row.customerName}</div>
+                        <div className="text-[10px] text-gray-400 font-mono">{row.customerNumber}</div>
+                      </td>
+                      <td className="p-3 font-mono text-gray-600 font-medium">
+                        {row.documentNumber}
+                      </td>
+                      <td className="p-3">
+                        <div className="font-medium text-gray-800">{row.description}</div>
+                        <div className="text-[10px] text-gray-400 font-mono">Varenr: {row.itemNumber}</div>
+                      </td>
+                      <td className="p-3 text-right font-mono font-medium text-gray-700">
+                        {formatNumber(row.quantity)}
+                      </td>
+                      <td className="p-3 text-right text-gray-400 font-mono">
+                        {formatCurrency(Math.abs(row.costAmount))}
+                      </td>
+                      <td className="p-3 text-right font-bold text-rose-600 font-mono">
+                        {formatCurrency(row.salesAmount)}
+                      </td>
+                      <td className={`p-3 text-right font-semibold font-mono ${profit < 0 ? "text-rose-600" : "text-emerald-600"}`}>
+                        {formatCurrency(profit)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </div>
       )}

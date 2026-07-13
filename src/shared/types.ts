@@ -36,6 +36,7 @@ export interface ImportMetadata {
   errorMessage?: string;
   replacedImportId?: string;
   applicationVersion: string;
+  tilbudUge?: boolean;
 }
 
 export interface SalesFilter {

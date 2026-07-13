@@ -11,6 +11,19 @@ const METADATA_FILE = path.join(DATA_DIR, "system_metadata.json");
 const inMemoryHistory: ImportMetadata[] = [];
 const inMemoryWorksheets: Record<string, SalesRawRow[]> = {};
 
+// Google Sheets API cache layers to prevent quota issues
+let cachedGoogleHistory: ImportMetadata[] | null = null;
+let lastGoogleHistoryFetchTime = 0;
+let pendingHistoryPromise: Promise<ImportMetadata[]> | null = null;
+
+const pendingWorksheetPromises: Record<string, Promise<SalesRawRow[]>> = {};
+
+export function invalidateGoogleHistoryCache() {
+  cachedGoogleHistory = null;
+  lastGoogleHistoryFetchTime = 0;
+  pendingHistoryPromise = null;
+}
+
 // Helper to make sure directory exists
 function ensureDirectories() {
   try {
@@ -98,6 +111,7 @@ export async function getImportHistory(): Promise<ImportMetadata[]> {
 
 // Save import history item
 export async function saveImportMetadata(meta: ImportMetadata): Promise<void> {
+  invalidateGoogleHistoryCache();
   ensureDirectories();
   const history = await getImportHistory();
   // If this replaces an existing import, update its status or keep it as replaced
@@ -280,6 +294,9 @@ function convertRowsToValues(rows: SalesRawRow[]): any[][] {
 // Google Sheets Write Proxy
 // In case of true Google connection, this function will append/write to the actual sheets.
 export async function saveToGoogleSheets(worksheetName: string, rows: SalesRawRow[], metadata: ImportMetadata): Promise<boolean> {
+  // Invalidate any active history caches on write/import
+  invalidateGoogleHistoryCache();
+
   // Save locally first (local cache / file-system sheet simulation)
   await saveWorksheetData(worksheetName, rows);
   await saveImportMetadata(metadata);
@@ -389,7 +406,8 @@ export async function saveToGoogleSheets(worksheetName: string, rows: SalesRawRo
         "Uploaded By",
         "Import Status",
         "Import Version",
-        "File Hash"
+        "File Hash",
+        "Tilbud Uge"
       ];
 
       await sheets.spreadsheets.values.update({
@@ -416,7 +434,8 @@ export async function saveToGoogleSheets(worksheetName: string, rows: SalesRawRo
       metadata.uploadedBy || "",
       metadata.importStatus || "",
       metadata.importVersion || 1,
-      metadata.fileHash || ""
+      metadata.fileHash || "",
+      metadata.tilbudUge ? "TRUE" : "FALSE"
     ];
 
     console.log(`[Google Sheets API] Logging metadata row to "_System"...`);
@@ -512,6 +531,35 @@ function parseGoogleSheetNumeric(val: any): number {
 }
 
 async function fetchHistoryFromGoogleSheets(): Promise<ImportMetadata[]> {
+  const now = Date.now();
+  if (cachedGoogleHistory && (now - lastGoogleHistoryFetchTime < 60000)) {
+    console.log("[Cache] Returning cached Google Sheets history.");
+    return cachedGoogleHistory;
+  }
+
+  if (pendingHistoryPromise) {
+    console.log("[Cache] Returning pending Google Sheets history promise.");
+    return pendingHistoryPromise;
+  }
+
+  pendingHistoryPromise = (async () => {
+    try {
+      const history = await fetchHistoryFromGoogleSheetsRaw();
+      cachedGoogleHistory = history;
+      lastGoogleHistoryFetchTime = Date.now();
+      return history;
+    } catch (err) {
+      console.error("[Cache] Failed to fetch Google Sheets history:", err);
+      return [];
+    } finally {
+      pendingHistoryPromise = null;
+    }
+  })();
+
+  return pendingHistoryPromise;
+}
+
+async function fetchHistoryFromGoogleSheetsRaw(): Promise<ImportMetadata[]> {
   const hasGoogleCreds = !!(process.env.GOOGLE_CLIENT_EMAIL && process.env.GOOGLE_PRIVATE_KEY && process.env.GOOGLE_SALES_SPREADSHEET_ID);
   if (!hasGoogleCreds) return [];
 
@@ -537,7 +585,7 @@ async function fetchHistoryFromGoogleSheets(): Promise<ImportMetadata[]> {
     if (hasSystem) {
       const response = await sheets.spreadsheets.values.get({
         spreadsheetId,
-        range: "_System!A2:M1000",
+        range: "_System!A2:N1000",
       });
 
       const rows = response.data.values;
@@ -560,7 +608,8 @@ async function fetchHistoryFromGoogleSheets(): Promise<ImportMetadata[]> {
             importVersion: Number(r[11]) || 1,
             fileHash: r[12] || "",
             templateVersion: "1.0.0",
-            applicationVersion: "1.0.0"
+            applicationVersion: "1.0.0",
+            tilbudUge: r[13] === "TRUE"
           };
         });
       }
@@ -606,6 +655,26 @@ async function fetchHistoryFromGoogleSheets(): Promise<ImportMetadata[]> {
 }
 
 async function fetchWorksheetFromGoogleSheets(worksheetName: string): Promise<SalesRawRow[]> {
+  if (pendingWorksheetPromises[worksheetName]) {
+    console.log(`[Cache] Returning pending Google Sheets promise for worksheet "${worksheetName}".`);
+    return pendingWorksheetPromises[worksheetName];
+  }
+
+  pendingWorksheetPromises[worksheetName] = (async () => {
+    try {
+      return await fetchWorksheetFromGoogleSheetsRaw(worksheetName);
+    } catch (err) {
+      console.error(`[Cache] Failed to fetch Google Sheets worksheet "${worksheetName}":`, err);
+      return [];
+    } finally {
+      delete pendingWorksheetPromises[worksheetName];
+    }
+  })();
+
+  return pendingWorksheetPromises[worksheetName];
+}
+
+async function fetchWorksheetFromGoogleSheetsRaw(worksheetName: string): Promise<SalesRawRow[]> {
   const hasGoogleCreds = !!(process.env.GOOGLE_CLIENT_EMAIL && process.env.GOOGLE_PRIVATE_KEY && process.env.GOOGLE_SALES_SPREADSHEET_ID);
   if (!hasGoogleCreds) return [];
 
