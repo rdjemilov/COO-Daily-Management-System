@@ -34,9 +34,23 @@ export async function handleCountingProductsLookup(req: Request, res: Response) 
     normalizedInputs.forEach(inputNum => {
       if (!inputNum) return;
       
-      const foundProduct = products.find(p => p.itemNumber === inputNum);
+      // 1. Try exact match
+      let foundProduct = products.find(p => p.itemNumber === inputNum);
+
+      // 2. Try flexible match with leading zero trimming
+      if (!foundProduct) {
+        const cleanInput = inputNum.replace(/^0+/, "");
+        if (cleanInput) {
+          foundProduct = products.find(p => p.itemNumber.replace(/^0+/, "") === cleanInput);
+        }
+      }
+
       if (foundProduct) {
-        matchedProducts.push(foundProduct);
+        // Return with the input item number formatted as requested so frontend matches it exactly
+        matchedProducts.push({
+          ...foundProduct,
+          itemNumber: inputNum
+        });
       } else {
         if (!notFound.includes(inputNum)) {
           notFound.push(inputNum);
@@ -70,8 +84,24 @@ export async function handleCountingProductsQuery(req: Request, res: Response) {
     const itemNumbers = itemsQuery.split(",").map(i => i.trim()).filter(Boolean);
     const { products, timestamp, source } = await getProductMaster(spreadsheetId);
 
-    const matchedProducts = products.filter(p => itemNumbers.includes(p.itemNumber));
-    const notFound = itemNumbers.filter(item => !products.some(p => p.itemNumber === item));
+    const matchedProducts = itemNumbers.map(num => {
+      let found = products.find(p => p.itemNumber === num);
+      if (!found) {
+        const cleanInput = num.replace(/^0+/, "");
+        if (cleanInput) {
+          found = products.find(p => p.itemNumber.replace(/^0+/, "") === cleanInput);
+        }
+      }
+      if (found) {
+        return { ...found, itemNumber: num };
+      }
+      return null;
+    }).filter(Boolean);
+
+    const notFound = itemNumbers.filter(item => {
+      const cleanItem = item.replace(/^0+/, "");
+      return !products.some(p => p.itemNumber === item || (cleanItem && p.itemNumber.replace(/^0+/, "") === cleanItem));
+    });
 
     res.json({
       products: matchedProducts,

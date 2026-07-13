@@ -250,10 +250,10 @@ export async function getProductMaster(customSpreadsheetId?: string): Promise<{
 
     console.log(`[Product Master] Reading data from sheet: "${targetSheetName}"`);
 
-    // Fetch the values from range A1:Z10000
+    // Fetch all values from Column A to Z without a hardcoded row limit (e.g., A1:Z)
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${targetSheetName}!A1:Z10000`
+      range: `${targetSheetName}!A1:Z`
     });
 
     const rows = response.data.values;
@@ -263,22 +263,21 @@ export async function getProductMaster(customSpreadsheetId?: string): Promise<{
 
     const headers = rows[0].map(h => String(h || "").trim().toLowerCase());
     
-    // Find key column indices based on header mapping
-    let itemNumberColIdx = -1;
-    let descriptionColIdx = -1;
+    // Strictly map Item Number to Column A (index 0) and Description to Column B (index 1)
+    const itemNumberColIdx = 0;
+    const descriptionColIdx = 1;
+
     let unitColIdx = -1;
     let blockedColIdx = -1;
     let placementColIdx = -1;
     let locationCodeColIdx = -1;
     let quantityColIdx = -1;
 
-    // Direct exact / alias matches
+    // Scan the rest of the columns (starting from index 2) for standard metadata headers
     headers.forEach((h, idx) => {
-      if (["varenr", "item number", "item no.", "varenummer", "sku", "product number", "id"].includes(h)) {
-        itemNumberColIdx = idx;
-      } else if (["beskrivelse", "description", "varenavn", "product name", "name"].includes(h)) {
-        descriptionColIdx = idx;
-      } else if (["basisenhed", "unit", "enhed", "base unit"].includes(h)) {
+      if (idx < 2) return; // Column A and B are strictly reserved for Item Number and Description
+
+      if (["basisenhed", "unit", "enhed", "base unit"].includes(h)) {
         unitColIdx = idx;
       } else if (["spærret", "spaerret", "blocked", "status"].includes(h)) {
         blockedColIdx = idx;
@@ -291,32 +290,19 @@ export async function getProductMaster(customSpreadsheetId?: string): Promise<{
       }
     });
 
-    // Loose match fallbacks if exact matches aren't found
-    if (itemNumberColIdx === -1) {
-      itemNumberColIdx = headers.findIndex(h => h.includes("varenr") || h.includes("item") || h.includes("sku") || h.includes("kod") || h.includes("no"));
-    }
-    if (descriptionColIdx === -1) {
-      descriptionColIdx = headers.findIndex(h => h.includes("beskriv") || h.includes("desc") || h.includes("navn") || h.includes("name"));
-    }
-
-    // Default fallbacks to Column A (0) and Column B (1) if not found
-    if (itemNumberColIdx === -1) {
-      itemNumberColIdx = 0;
-      console.log("[Product Master] Could not detect item number column. Defaulting to Column A (index 0).");
-    }
-    if (descriptionColIdx === -1) {
-      descriptionColIdx = rows[0].length > 1 ? 1 : 0;
-      console.log(`[Product Master] Could not detect description column. Defaulting to Column B (index ${descriptionColIdx}).`);
-    }
-
-    // Determine if the first row actually contains product data instead of column headers.
-    // If the value in the item column of the first row is purely numeric or is a known data pattern, start parsing from row 0.
+    // Robust header detection: Check if the first row contains any common header keywords
     let startRowIdx = 1;
-    const firstRowItemVal = String(rows[0][itemNumberColIdx] || "").trim();
-    const isFirstRowData = firstRowItemVal && (/^\d+$/.test(firstRowItemVal) || (firstRowItemVal.length >= 3 && !isNaN(Number(firstRowItemVal))));
-    if (isFirstRowData) {
+    const firstRowItemVal = String(rows[0][itemNumberColIdx] || "").trim().toLowerCase();
+    const firstRowDescVal = String(rows[0][descriptionColIdx] || "").trim().toLowerCase();
+    const isHeaderRow = 
+      ["varenr", "item number", "item no.", "varenummer", "sku", "product number", "id", "varenr."].includes(firstRowItemVal) ||
+      ["beskrivelse", "description", "varenavn", "product name", "name"].includes(firstRowDescVal);
+
+    if (!isHeaderRow) {
       startRowIdx = 0;
-      console.log("[Product Master] First row detected as actual product data (no header). Parsing from index 0.");
+      console.log("[Product Master] No header row identified in first row. Parsing from index 0.");
+    } else {
+      console.log("[Product Master] Header row identified. Parsing from index 1.");
     }
 
     const productsMap: Record<string, ProductMasterItem> = {};
