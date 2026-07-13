@@ -8,6 +8,7 @@ import SalesWithoutProfit from "./modules/sales/components/SalesWithoutProfit.ts
 import SalesAlertsAndOpportunities from "./modules/sales/components/SalesAlertsAndOpportunities.tsx";
 import DatabaseManagement from "./modules/database/components/DatabaseManagement.tsx";
 import TabVindManagement from "./modules/tab-vind/components/TabVindManagement.tsx";
+import CountingManagement from "./modules/counting/components/CountingManagement.tsx";
 import { SalesRawRow, ImportMetadata, SalesFilter } from "./shared/types.ts";
 import { getComparisonDate } from "./modules/sales/calculations.ts";
 import { formatDate } from "./shared/utils/format.ts";
@@ -392,6 +393,17 @@ export default function App() {
               transition={{ duration: 0.2 }}
             >
               <TabVindManagement />
+            </motion.div>
+          )}
+
+          {/* Cycle Counting Module */}
+          {activeModule === "counting" && (
+            <motion.div
+              initial={{ opacity: 0, y: 5 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.2 }}
+            >
+              <CountingManagement />
             </motion.div>
           )}
         </div>

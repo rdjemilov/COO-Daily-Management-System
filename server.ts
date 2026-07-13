@@ -7,6 +7,7 @@ import { validateExcelData, cleanAndMapRows } from "./server/validator.js";
 import { ImportMetadata } from "./src/shared/types.js";
 import { calculateSalesAlerts, getISOWeekString } from "./server/alerts/sales-alerts.service.js";
 import { handleAnalyse, handlePdf } from "./server/tab-vind/handler.js";
+import { handleCountingProductsLookup, handleCountingProductsQuery, handleCountingProductsRefresh, handleCountingPdf } from "./server/counting/handler.js";
 
 const app = express();
 
@@ -105,6 +106,12 @@ app.get("/api/sales/alerts", async (req, res) => {
 app.post("/api/tab-vind/analyse", handleAnalyse);
 app.post("/api/tab-vind/pdf", handlePdf);
 
+// API Routes: Cycle Counting (Counting) Module
+app.post("/api/counting/products/lookup", handleCountingProductsLookup);
+app.get("/api/counting/products", handleCountingProductsQuery);
+app.post("/api/counting/products/refresh", handleCountingProductsRefresh);
+app.post("/api/counting/pdf", handleCountingPdf);
+
 // API Route: Upload and Validate Excel File
 app.post("/api/upload", async (req, res) => {
   try {
@@ -184,7 +191,7 @@ app.post("/api/import", async (req, res) => {
       importedRowCount: cleanRows.length,
       importedColumnCount: Object.keys(rawRows[0] || {}).length,
       importedAt: new Date().toISOString(),
-      uploadedBy: "studiorasim@gmail.com",
+      uploadedBy: "rb@danfoods.dk",
       importStatus: "success",
       importVersion: replaceExisting ? 2 : 1,
       fileHash: fileHash || calculateFileHash(buffer),

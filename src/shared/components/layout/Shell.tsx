@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { LayoutDashboard, BarChart3, Database, Menu, X, ChevronLeft, ChevronRight, User, Scale } from "lucide-react";
+import { LayoutDashboard, BarChart3, Database, Menu, X, ChevronLeft, ChevronRight, User, Scale, ClipboardList } from "lucide-react";
 import DanfoodsLogo from "../logo/DanfoodsLogo.tsx";
 
 interface SidebarItem {
@@ -18,6 +18,7 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { id: "sales", label: "Sales & Rentabilitet", icon: BarChart3 },
   { id: "tab-vind", label: "Tab / Vind Afstemning", icon: Scale },
+  { id: "counting", label: "Cycle Counting", icon: ClipboardList },
   { id: "database", label: "Database Management", icon: Database },
 ];
 
@@ -144,8 +145,8 @@ export default function Shell({ children, activeModule, setActiveModule }: Shell
           {/* User info */}
           <div className="flex items-center gap-3 text-xs">
             <div className="text-right hidden sm:block">
-              <p className="font-semibold text-gray-800">Rasim Studio</p>
-              <p className="text-[10px] text-gray-400 font-mono">studiorasim@gmail.com</p>
+              <p className="font-semibold text-gray-800">Rasim Beytula</p>
+              <p className="text-[10px] text-gray-400 font-mono">rb@danfoods.dk</p>
             </div>
             <div className="p-2 bg-brand-light text-brand rounded-full">
               <User className="h-4 w-4" />

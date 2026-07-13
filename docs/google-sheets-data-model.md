@@ -38,7 +38,7 @@ The `_System` sheet tracks import versions, upload metadata, and verifies data i
 | **Original File Size**| Number | File size in bytes | `47312` |
 | **Imported Row Count**| Number | Number of sales rows imported | `42` |
 | **Imported At** | String | ISO Timestamp of upload completion | `2026-07-10T09:12:00.000Z` |
-| **Uploaded By** | String | User identity email of importer | `studiorasim@gmail.com` |
+| **Uploaded By** | String | User identity email of importer | `rb@danfoods.dk` |
 | **Import Status** | String | Import status enum | `success` |
 | **File Hash** | String | MD5 hash of original binary contents | `a1b2c3d4e5...` |
 

@@ -127,7 +127,7 @@ export async function generateTabVindPDF(
   doc.setFontSize(8);
   doc.setTextColor(100, 116, 139); // slate-500
   const generatedTime = new Date().toLocaleString("da-DK", { timeZone: "Europe/Copenhagen" });
-  doc.text(`Genereret: ${generatedTime} | Af: studiorasim@gmail.com`, pageWidth - margin, currentY + 8, { align: "right" });
+  doc.text(`Genereret: ${generatedTime} | Af: rb@danfoods.dk`, pageWidth - margin, currentY + 8, { align: "right" });
 
   currentY += 25;
   doc.line(margin, currentY, pageWidth - margin, currentY);
@@ -412,7 +412,111 @@ export async function generateTabVindPDF(
     currentY += 10;
   }
 
-  // 7. UNMATCHED DETAIL TABLE
+  // 7. VARE-SPECIFIKKE DIFFERENCER (PRODUKTER DER SKABER DIFFERENCEN)
+  interface ProductDiff {
+    itemNumber: string;
+    description: string;
+    locationCode: string;
+    reasonCode: string;
+    netQty: number;
+    netCost: number;
+  }
+
+  const productDiffMap: Record<string, ProductDiff> = {};
+
+  analysis.groups.forEach(g => {
+    if (g.status === "Matched") return;
+    
+    g.nedRows.forEach(row => {
+      const key = `${row.itemNumber}_${row.locationCode}_${row.reasonCode || "BLANK"}`;
+      if (!productDiffMap[key]) {
+        productDiffMap[key] = {
+          itemNumber: row.itemNumber,
+          description: row.description,
+          locationCode: row.locationCode,
+          reasonCode: row.reasonCode || "BLANK",
+          netQty: 0,
+          netCost: 0
+        };
+      }
+      productDiffMap[key].netQty += row.quantity;
+      productDiffMap[key].netCost -= row.normCost;
+    });
+
+    g.opRows.forEach(row => {
+      const key = `${row.itemNumber}_${row.locationCode}_${row.reasonCode || "BLANK"}`;
+      if (!productDiffMap[key]) {
+        productDiffMap[key] = {
+          itemNumber: row.itemNumber,
+          description: row.description,
+          locationCode: row.locationCode,
+          reasonCode: row.reasonCode || "BLANK",
+          netQty: 0,
+          netCost: 0
+        };
+      }
+      productDiffMap[key].netQty += row.quantity;
+      productDiffMap[key].netCost += row.normCost;
+    });
+  });
+
+  const productDiffs = Object.values(productDiffMap)
+    .filter(p => Math.abs(p.netCost) > 0.01)
+    .sort((a, b) => Math.abs(b.netCost) - Math.abs(a.netCost));
+
+  if (productDiffs.length > 0) {
+    checkPageOverflow(100);
+    doc.setFont("Helvetica", "bold");
+    doc.setFontSize(10);
+    doc.setTextColor(15, 23, 42);
+    doc.text("VARE-SPECIFIKKE DIFFERENCER (PRODUKTAFVIGELSER)", margin, currentY);
+    currentY += 15;
+
+    const prodHeaders = [
+      { label: "Varenr.", width: 60 },
+      { label: "Beskrivelse", width: 140 },
+      { label: "Lokation", width: 70 },
+      { label: "Årsag", width: 60 },
+      { label: "Netto Antal", width: 85, align: "right" as const },
+      { label: "Kost-difference", width: 100, align: "right" as const }
+    ];
+
+    drawTableHeader(prodHeaders);
+    doc.setFont("Helvetica", "normal");
+    doc.setFontSize(7.5);
+    doc.setTextColor(51, 65, 85);
+
+    productDiffs.slice(0, 30).forEach(p => {
+      checkPageOverflow(20);
+
+      doc.text(p.itemNumber, margin + 8, currentY + 11);
+      doc.text(p.description.slice(0, 28), margin + 60, currentY + 11);
+      doc.text(p.locationCode, margin + 60 + 140, currentY + 11);
+      doc.text(p.reasonCode, margin + 60 + 140 + 70, currentY + 11);
+      
+      const qtyText = formatDanishQty(p.netQty);
+      doc.text(qtyText, margin + 60 + 140 + 70 + 60 + 85 - 16, currentY + 11, { align: "right" });
+
+      doc.setTextColor(p.netCost < 0 ? 220 : 22, p.netCost < 0 ? 38 : 163, p.netCost < 0 ? 38 : 74);
+      doc.text(formatDanishCurrency(p.netCost), margin + 60 + 140 + 70 + 60 + 85 + 100 - 16, currentY + 11, { align: "right" });
+      doc.setTextColor(51, 65, 85);
+
+      doc.setDrawColor(241, 245, 249);
+      doc.line(margin, currentY + 16, pageWidth - margin, currentY + 16);
+      currentY += 16;
+    });
+
+    if (productDiffs.length > 30) {
+      checkPageOverflow(20);
+      doc.setFont("Helvetica", "italic");
+      doc.text(`... og ${productDiffs.length - 30} yderligere produktafvigelser udeladt for rapport-kompakthed.`, margin + 8, currentY + 11);
+      currentY += 20;
+    }
+    
+    currentY += 20;
+  }
+
+  // 8. UNMATCHED DETAIL TABLE
   const unmatchedGroups = analysis.groups.filter(g => g.status.startsWith("Unmatched") || g.status === "Partially Matched");
   if (unmatchedGroups.length > 0) {
     checkPageOverflow(100);
