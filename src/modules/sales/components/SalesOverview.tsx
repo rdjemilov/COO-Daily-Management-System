@@ -800,9 +800,9 @@ export default function SalesOverview({
             </label>
           </div>
 
-          <div className="overflow-x-auto text-xs border border-gray-100 rounded-lg">
+          <div className="overflow-auto max-h-[500px] scrollbar-thin text-xs border border-gray-100 rounded-lg">
             <table className="w-full text-left border-collapse">
-              <thead>
+              <thead className="sticky top-0 z-10 bg-gray-50 shadow-xs">
                 <tr className="bg-gray-50 border-b border-gray-100 font-semibold text-gray-600">
                   <th className="p-3 text-center w-12">Rang</th>
                   <th className="p-3">Kunde</th>
@@ -873,9 +873,9 @@ export default function SalesOverview({
             </div>
           </div>
 
-          <div className="overflow-x-auto text-xs border border-gray-100 rounded-lg">
+          <div className="overflow-auto max-h-[500px] scrollbar-thin text-xs border border-gray-100 rounded-lg">
             <table className="w-full text-left border-collapse">
-              <thead>
+              <thead className="sticky top-0 z-10 bg-gray-50 shadow-xs">
                 <tr className="bg-gray-50 border-b border-gray-100 font-semibold text-gray-600">
                   <th className="p-3 text-center w-12">Rang</th>
                   <th className="p-3">Produkt</th>
@@ -1013,9 +1013,9 @@ export default function SalesOverview({
               {/* Transactions grid list */}
               <div className="space-y-3">
                 <h4 className="font-semibold text-gray-900 border-b border-gray-100 pb-1.5">Transaktionslinjer</h4>
-                <div className="border border-gray-100 rounded-lg overflow-x-auto max-h-48 text-xs">
+                <div className="border border-gray-100 rounded-lg overflow-auto max-h-48 scrollbar-thin text-xs">
                   <table className="w-full text-left border-collapse">
-                    <thead>
+                    <thead className="sticky top-0 z-10 bg-gray-50 shadow-xs">
                       <tr className="bg-gray-50 border-b border-gray-100 font-semibold text-gray-600">
                         <th className="p-2">Bilagsnr.</th>
                         <th className="p-2">Varenr.</th>
@@ -1070,9 +1070,9 @@ export default function SalesOverview({
             </span>
           </div>
 
-          <div className="overflow-x-auto text-xs border border-gray-100 rounded-lg">
+          <div className="overflow-auto max-h-[500px] scrollbar-thin text-xs border border-gray-100 rounded-lg">
             <table className="w-full text-left border-collapse">
-              <thead>
+              <thead className="sticky top-0 z-10 bg-gray-50 shadow-xs">
                 <tr className="bg-gray-50 border-b border-gray-100 font-semibold text-gray-600">
                   <th className="p-3">Kunde</th>
                   <th className="p-3">Bilagsnr.</th>
@@ -1206,9 +1206,9 @@ export default function SalesOverview({
               {/* Transactions list */}
               <div className="space-y-3">
                 <h4 className="font-semibold text-gray-900 border-b border-gray-100 pb-1.5">Transaktionslinjer</h4>
-                <div className="border border-gray-100 rounded-lg overflow-x-auto max-h-48 text-xs">
+                <div className="border border-gray-100 rounded-lg overflow-auto max-h-48 scrollbar-thin text-xs">
                   <table className="w-full text-left border-collapse">
-                    <thead>
+                    <thead className="sticky top-0 z-10 bg-gray-50 shadow-xs">
                       <tr className="bg-gray-50 border-b border-gray-100 font-semibold text-gray-600">
                         <th className="p-2">Dato</th>
                         <th className="p-2">Bilagsnr.</th>

@@ -176,10 +176,31 @@ function tryRepairTruncatedJson(content: string): any[] | null {
   return null;
 }
 
+function normalizeRowSigns(row: SalesRawRow): SalesRawRow {
+  const docType = String(row.documentType || "").trim().toLowerCase();
+  const isCreditMemo = docType.includes("kredit") || docType.includes("credit");
+  
+  if (isCreditMemo) {
+    return {
+      ...row,
+      quantity: -Math.abs(row.quantity),
+      salesAmount: -Math.abs(row.salesAmount),
+      costAmount: -Math.abs(row.costAmount)
+    };
+  } else {
+    return {
+      ...row,
+      quantity: Math.abs(row.quantity),
+      salesAmount: Math.abs(row.salesAmount),
+      costAmount: Math.abs(row.costAmount)
+    };
+  }
+}
+
 // Get worksheet data
 export async function getWorksheetData(worksheetName: string): Promise<SalesRawRow[]> {
   if (inMemoryWorksheets[worksheetName]) {
-    return inMemoryWorksheets[worksheetName];
+    return inMemoryWorksheets[worksheetName].map(normalizeRowSigns);
   }
   ensureDirectories();
 
@@ -201,14 +222,15 @@ export async function getWorksheetData(worksheetName: string): Promise<SalesRawR
       } catch (err) {
         console.warn(`Failed to write fetched worksheet ${actualWorksheetName} to file:`, err);
       }
-      return googleRows;
+      return googleRows.map(normalizeRowSigns);
     }
     return [];
   }
   try {
     const content = fs.readFileSync(filePath, "utf-8");
     try {
-      return JSON.parse(content) as SalesRawRow[];
+      const parsed = JSON.parse(content) as SalesRawRow[];
+      return parsed.map(normalizeRowSigns);
     } catch (parseError: any) {
       console.warn(`[Self-Healing] JSON parse failed for worksheet ${worksheetName}. Attempting repair...`, parseError.message);
       const repaired = tryRepairTruncatedJson(content);
@@ -220,7 +242,7 @@ export async function getWorksheetData(worksheetName: string): Promise<SalesRawR
         } catch (writeErr) {
           console.error(`[Self-Healing] Failed to save repaired worksheet back to file:`, writeErr);
         }
-        return repaired as SalesRawRow[];
+        return (repaired as SalesRawRow[]).map(normalizeRowSigns);
       }
       throw parseError;
     }

@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { LayoutDashboard, BarChart3, Database, Menu, X, ChevronLeft, ChevronRight, User, Scale, ClipboardList } from "lucide-react";
+import { LayoutDashboard, BarChart3, Database, Menu, X, ChevronLeft, ChevronRight, User, Scale, ClipboardList, Receipt } from "lucide-react";
 import DanfoodsLogo from "../logo/DanfoodsLogo.tsx";
 
 interface SidebarItem {
@@ -17,6 +17,7 @@ interface ShellProps {
 const SIDEBAR_ITEMS: SidebarItem[] = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { id: "sales", label: "Sales & Rentabilitet", icon: BarChart3 },
+  { id: "debitor", label: "Saldoopfølgning", icon: Receipt },
   { id: "tab-vind", label: "Tab / Vind Afstemning", icon: Scale },
   { id: "counting", label: "Cycle Counting", icon: ClipboardList },
   { id: "database", label: "Database Management", icon: Database },

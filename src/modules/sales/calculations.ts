@@ -20,14 +20,36 @@ export function isCashCustomer(customerName: string, customerNumber: string): bo
   return name.startsWith("kontant") || num.startsWith("kontant");
 }
 
+export function normalizeRowSigns(row: SalesRawRow): SalesRawRow {
+  const docType = String(row.documentType || "").trim().toLowerCase();
+  const isCreditMemo = docType.includes("kredit") || docType.includes("credit");
+  
+  if (isCreditMemo) {
+    return {
+      ...row,
+      quantity: -Math.abs(row.quantity),
+      salesAmount: -Math.abs(row.salesAmount),
+      costAmount: -Math.abs(row.costAmount)
+    };
+  } else {
+    return {
+      ...row,
+      quantity: Math.abs(row.quantity),
+      salesAmount: Math.abs(row.salesAmount),
+      costAmount: Math.abs(row.costAmount)
+    };
+  }
+}
+
 // Normalized Cost & Gross Profit Calculations (Section 17)
 export function getRowGrossProfit(row: SalesRawRow): number {
   if (isExcludedItem(row.itemNumber, row.description)) {
     return 0; // Excluded items contribute 0 gross profit
   }
+  const norm = normalizeRowSigns(row);
   // Normalised Cost = absolute value of cost amount
-  const normalisedCost = Math.abs(row.costAmount);
-  return row.salesAmount - normalisedCost;
+  const normalisedCost = Math.abs(norm.costAmount);
+  return norm.salesAmount - normalisedCost;
 }
 
 // Process and aggregate all metrics from raw Sales lines
@@ -56,7 +78,8 @@ export function calculateSalesMetrics(rows: SalesRawRow[], excludeCash: boolean 
   let lossCount = 0;
   let totalLossAmount = 0;
 
-  rows.forEach((row) => {
+  rows.forEach((rawRow) => {
+    const row = normalizeRowSigns(rawRow);
     // Check exclusions
     const isExcluded = isExcludedItem(row.itemNumber, row.description);
     if (isExcluded) return;
@@ -74,8 +97,10 @@ export function calculateSalesMetrics(rows: SalesRawRow[], excludeCash: boolean 
     const rowProfit = row.salesAmount - rowCost;
     totalGrossProfit += rowProfit;
 
-    // Loss calculations
-    if (rowProfit <= 0 && (row.documentType === "Faktura" || row.documentType === "Salgsfaktura")) {
+    // Loss calculations - only for invoices
+    const docTypeLower = String(row.documentType || "").trim().toLowerCase();
+    const isInvoice = docTypeLower.includes("faktura") || docTypeLower.includes("invoice");
+    if (rowProfit <= 0 && isInvoice) {
       lossCount++;
       totalLossAmount += Math.abs(rowProfit);
     }
@@ -89,7 +114,7 @@ export function calculateSalesMetrics(rows: SalesRawRow[], excludeCash: boolean 
       customerNumbers.add(row.customerNumber);
       
       // Delivery Customers: Salgsleverance documents
-      if (row.documentType === "Salgsleverance") {
+      if (docTypeLower.includes("leverance") || docTypeLower.includes("shipment") || docTypeLower.includes("delivery")) {
         deliveryCustomers.add(row.customerNumber);
       }
     }
@@ -127,7 +152,8 @@ export function getTopCustomers(rows: SalesRawRow[], limit: number = 10, exclude
 
   let grandTotalSales = 0;
 
-  rows.forEach((row) => {
+  rows.forEach((rawRow) => {
+    const row = normalizeRowSigns(rawRow);
     if (isExcludedItem(row.itemNumber, row.description)) return;
     
     const isCash = isCashCustomer(row.customerName, row.customerNumber);
@@ -194,7 +220,8 @@ export function getTopProducts(rows: SalesRawRow[], limit: number = 10): Product
 
   let grandTotalSales = 0;
 
-  rows.forEach((row) => {
+  rows.forEach((rawRow) => {
+    const row = normalizeRowSigns(rawRow);
     if (isExcludedItem(row.itemNumber, row.description)) return;
 
     grandTotalSales += row.salesAmount;
@@ -254,9 +281,24 @@ export function getTopProducts(rows: SalesRawRow[], limit: number = 10): Product
 export function getSalesWithoutProfit(rows: SalesRawRow[]): SalesWithoutProfitRow[] {
   const list: SalesWithoutProfitRow[] = [];
 
-  rows.forEach((row) => {
-    // Only consider sales invoices or relevant positive quantity transactions
-    if (row.documentType !== "Faktura" && row.documentType !== "Salgsfaktura") return;
+  rows.forEach((rawRow) => {
+    const row = normalizeRowSigns(rawRow);
+    const docTypeLower = String(row.documentType || "").trim().toLowerCase();
+    
+    // Explicitly exclude credit memos
+    if (docTypeLower.includes("kredit") || docTypeLower.includes("credit")) return;
+
+    // Only allow sales invoices and shipments/deliveries (salgsfaktura, faktura, salgsleverance, leverance, etc.)
+    const isAllowedDoc = 
+      docTypeLower.includes("faktura") || 
+      docTypeLower.includes("invoice") || 
+      docTypeLower.includes("leverance") || 
+      docTypeLower.includes("levering") ||
+      docTypeLower.includes("shipment") || 
+      docTypeLower.includes("delivery") ||
+      docTypeLower.includes("salg");
+      
+    if (!isAllowedDoc) return;
     if (isExcludedItem(row.itemNumber, row.description)) return;
 
     const normalisedCost = Math.abs(row.costAmount);

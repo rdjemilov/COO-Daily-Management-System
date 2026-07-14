@@ -712,12 +712,12 @@ export default function SalesAlertsAndOpportunities({ filter }: SalesAlertsProps
         </div>
 
         {/* Tab Detail View */}
-        <div className="overflow-x-auto">
+        <div className="overflow-auto max-h-[600px] scrollbar-thin">
           <table className="w-full text-left border-collapse">
             {/* Missing Customers Table */}
             {activeTab === "missing-customers" && (
               <>
-                <thead>
+                <thead className="sticky top-0 z-10 bg-slate-50 shadow-xs">
                   <tr className="bg-gray-50/50 text-3xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 select-none">
                     <th className="px-4 py-3 cursor-pointer hover:bg-gray-50" onClick={() => handleSort("customerNumber")}>
                       Kundenr. <ArrowUpDown className="inline h-3 w-3 ml-0.5" />
@@ -789,7 +789,7 @@ export default function SalesAlertsAndOpportunities({ filter }: SalesAlertsProps
             {/* Inactive Customers Table */}
             {activeTab === "inactive-customers" && (
               <>
-                <thead>
+                <thead className="sticky top-0 z-10 bg-slate-50 shadow-xs">
                   <tr className="bg-gray-50/50 text-3xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 select-none">
                     <th className="px-4 py-3 cursor-pointer hover:bg-gray-50" onClick={() => handleSort("customerNumber")}>
                       Kundenr. <ArrowUpDown className="inline h-3 w-3 ml-0.5" />
@@ -861,7 +861,7 @@ export default function SalesAlertsAndOpportunities({ filter }: SalesAlertsProps
             {/* New Customers Table */}
             {activeTab === "new-customers" && (
               <>
-                <thead>
+                <thead className="sticky top-0 z-10 bg-slate-50 shadow-xs">
                   <tr className="bg-gray-50/50 text-3xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 select-none">
                     <th className="px-4 py-3 cursor-pointer hover:bg-gray-50" onClick={() => handleSort("customerNumber")}>
                       Kundenr. <ArrowUpDown className="inline h-3 w-3 ml-0.5" />
@@ -925,7 +925,7 @@ export default function SalesAlertsAndOpportunities({ filter }: SalesAlertsProps
             {/* Top Products Missing Table */}
             {activeTab === "missing-products" && (
               <>
-                <thead>
+                <thead className="sticky top-0 z-10 bg-slate-50 shadow-xs">
                   <tr className="bg-gray-50/50 text-3xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 select-none">
                     <th className="px-4 py-3 text-center cursor-pointer hover:bg-gray-50" onClick={() => handleSort("rank")}>
                       Rank <ArrowUpDown className="inline h-3 w-3 ml-0.5" />
@@ -990,7 +990,7 @@ export default function SalesAlertsAndOpportunities({ filter }: SalesAlertsProps
             {/* Reactivated Products Table */}
             {activeTab === "reactivated-products" && (
               <>
-                <thead>
+                <thead className="sticky top-0 z-10 bg-slate-50 shadow-xs">
                   <tr className="bg-gray-50/50 text-3xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 select-none">
                     <th className="px-4 py-3 text-center cursor-pointer hover:bg-gray-50" onClick={() => handleSort("rank")}>
                       Rank <ArrowUpDown className="inline h-3 w-3 ml-0.5" />

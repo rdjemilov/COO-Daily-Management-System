@@ -123,3 +123,4 @@ export interface ValidationSummary {
   isValid: boolean;
   validationStatus: "valid" | "warning" | "invalid";
 }
+

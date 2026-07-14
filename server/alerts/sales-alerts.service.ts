@@ -525,23 +525,26 @@ export async function calculateSalesAlerts(
 
       const daysSinceLastPurchase = daysBetween(referenceDate, lastPurchaseDate);
 
-      customersMissingThisWeek.push({
-        customerNumber,
-        customerName: prevCust.customerName,
-        prevWeekSales: prevCust.sales,
-        prevWeekProfit: prevCust.profit,
-        prevWeekMargin: prevCust.sales !== 0 ? (prevCust.profit / prevCust.sales) * 100 : 0,
-        prevWeekInvoiceCount: prevCust.invoiceCount.size,
-        prevWeekPurchaseDays: prevCust.purchaseDays.size,
-        lastPurchaseDate,
-        daysSinceLastPurchase,
-        prevFourWeekSales,
-        prevFourWeekAvgWeeklySales,
-        estimatedSalesAtRisk,
-        mainPurchasedProduct,
-        mainLocation,
-        severity: "medium" // detailed below after median
-      });
+      // Only include missing customers if inactivity is at least 7 days
+      if (daysSinceLastPurchase >= 7) {
+        customersMissingThisWeek.push({
+          customerNumber,
+          customerName: prevCust.customerName,
+          prevWeekSales: prevCust.sales,
+          prevWeekProfit: prevCust.profit,
+          prevWeekMargin: prevCust.sales !== 0 ? (prevCust.profit / prevCust.sales) * 100 : 0,
+          prevWeekInvoiceCount: prevCust.invoiceCount.size,
+          prevWeekPurchaseDays: prevCust.purchaseDays.size,
+          lastPurchaseDate,
+          daysSinceLastPurchase,
+          prevFourWeekSales,
+          prevFourWeekAvgWeeklySales,
+          estimatedSalesAtRisk,
+          mainPurchasedProduct,
+          mainLocation,
+          severity: "medium" // detailed below after median
+        });
+      }
     }
   });
 

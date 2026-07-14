@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import { SalesRawRow, SalesWithoutProfitRow } from "../../../shared/types.js";
 import { formatCurrency, formatDate, formatNumber, formatPercentage } from "../../../shared/utils/format.js";
-import { getSalesWithoutProfit, isExcludedItem } from "../calculations.js";
+import { getSalesWithoutProfit, isExcludedItem, normalizeRowSigns } from "../calculations.js";
 import { exportElementToPDF } from "../../../shared/utils/pdfExport.ts";
 
 interface SalesWithoutProfitProps {
@@ -35,6 +35,10 @@ export default function SalesWithoutProfit({
 }: SalesWithoutProfitProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [pdfStatus, setPdfStatus] = useState<string | null>(null);
+
+  const normalizedCurrentRows = useMemo(() => {
+    return currentRows.map(normalizeRowSigns);
+  }, [currentRows]);
 
   const handleExportPDF = async () => {
     if (!containerRef.current) return;
@@ -84,8 +88,8 @@ export default function SalesWithoutProfit({
 
   // 1. Calculate All Sales Without Profit lines
   const rawProfitlessRows = useMemo(() => {
-    return getSalesWithoutProfit(currentRows);
-  }, [currentRows]);
+    return getSalesWithoutProfit(normalizedCurrentRows);
+  }, [normalizedCurrentRows]);
 
   // 2. Apply Location Filter to raw lines
   const filteredRawRows = useMemo(() => {
@@ -270,7 +274,7 @@ export default function SalesWithoutProfit({
       }[];
     }> = {};
 
-    currentRows.forEach((row) => {
+    normalizedCurrentRows.forEach((row) => {
       if (row.documentType !== "Faktura" && row.documentType !== "Salgsfaktura") return;
       if (isExcludedItem(row.itemNumber, row.description)) return;
       
@@ -358,7 +362,7 @@ export default function SalesWithoutProfit({
     });
 
     return list;
-  }, [currentRows, filterLocation, custSortField, custSortDirection]);
+  }, [normalizedCurrentRows, filterLocation, custSortField, custSortDirection]);
 
   // Apply search to customer groups
   const searchedCustomerGroups = useMemo(() => {
@@ -731,9 +735,9 @@ export default function SalesWithoutProfit({
       {/* Tab Contents */}
       {activeTab === "products" && (
         <div className="bg-white border border-gray-200 rounded-xl shadow-xs overflow-hidden text-xs" id="products-tab-content">
-          <div className="overflow-x-auto">
+          <div className="overflow-auto max-h-[600px] scrollbar-thin">
             <table className="w-full text-left border-collapse">
-              <thead>
+              <thead className="sticky top-0 z-10 bg-slate-100 shadow-xs">
                 <tr className="bg-slate-100 border-b border-gray-200 font-semibold text-gray-700">
                   <th className="p-3 cursor-pointer select-none" onClick={() => handleSortProd("itemNumber")}>
                     <div className="flex items-center gap-1.5">Varer <ArrowUpDown className="h-3 w-3" /></div>
@@ -821,9 +825,9 @@ export default function SalesWithoutProfit({
 
       {activeTab === "customers" && (
         <div className="bg-white border border-gray-200 rounded-xl shadow-xs overflow-hidden text-xs" id="customers-tab-content">
-          <div className="overflow-x-auto">
+          <div className="overflow-auto max-h-[600px] scrollbar-thin">
             <table className="w-full text-left border-collapse">
-              <thead>
+              <thead className="sticky top-0 z-10 bg-slate-100 shadow-xs">
                 <tr className="bg-slate-100 border-b border-gray-200 font-semibold text-gray-700">
                   <th className="p-3 cursor-pointer select-none" onClick={() => handleSortCust("customerName")}>
                     <div className="flex items-center gap-1.5">Kunder <ArrowUpDown className="h-3 w-3" /></div>
@@ -922,9 +926,9 @@ export default function SalesWithoutProfit({
 
       {activeTab === "flat" && (
         <div className="bg-white border border-gray-200 rounded-xl shadow-xs overflow-hidden text-xs" id="flat-tab-content">
-          <div className="overflow-x-auto">
+          <div className="overflow-auto max-h-[600px] scrollbar-thin">
             <table className="w-full text-left border-collapse">
-              <thead>
+              <thead className="sticky top-0 z-10 bg-gray-50 shadow-xs">
                 <tr className="bg-gray-50 border-b border-gray-100 font-semibold text-gray-600">
                   <th className="p-3 cursor-pointer select-none" onClick={() => handleSortFlat("date")}>
                     <div className="flex items-center gap-1.5">Dato <ArrowUpDown className="h-3 w-3" /></div>

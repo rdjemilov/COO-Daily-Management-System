@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Upload, FileSpreadsheet, CheckCircle, AlertTriangle, XCircle, RefreshCw, Calendar, Eye, Database } from "lucide-react";
+import { Upload, FileSpreadsheet, CheckCircle, AlertTriangle, XCircle, RefreshCw, Calendar, Eye, Database, Settings, Lock, Key, Mail, Link2, EyeOff } from "lucide-react";
 import { ValidationSummary, ImportMetadata, SalesRawRow } from "../../../shared/types.js";
 import { formatCurrency, formatDate, formatFileSize, formatNumber } from "../../../shared/utils/format.js";
 
@@ -15,6 +15,7 @@ export default function DatabaseManagement({ onImportSuccess }: DatabaseManageme
   const [validating, setValidating] = useState(false);
   
   // Validation output
+  const [selectedModule, setSelectedModule] = useState<"sales" | "debitor">("sales");
   const [validation, setValidation] = useState<ValidationSummary | null>(null);
   const [previewRows, setPreviewRows] = useState<any[]>([]);
   const [fileHash, setFileHash] = useState<string>("");
@@ -30,17 +31,143 @@ export default function DatabaseManagement({ onImportSuccess }: DatabaseManageme
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<{ success: boolean; message: string; importId?: string } | null>(null);
 
+  // Google Sheets API Settings States
+  const [showCredentials, setShowCredentials] = useState(false);
+  const [credentials, setCredentials] = useState({
+    GOOGLE_CLIENT_EMAIL: "",
+    GOOGLE_PRIVATE_KEY: "",
+    GOOGLE_SALES_SPREADSHEET_ID: "",
+    GOOGLE_DEBITOR_SPREADSHEET_ID: "",
+    GOOGLE_DRIVE_FOLDER_ID: "",
+    USE_MOCK_DATA: true,
+  });
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [settingsMessage, setSettingsMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [loadingSettings, setLoadingSettings] = useState(false);
+  const [showPrivateKey, setShowPrivateKey] = useState(false);
+
+  // States for testing Google Sheets connection live
+  const [testingSettings, setTestingSettings] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  // Connection health status
+  const [connectionStatus, setConnectionStatus] = useState<{ success: boolean; isMock: boolean; message: string } | null>(null);
+  const [checkingHealth, setCheckingHealth] = useState(false);
+
+  const checkConnectionHealth = async () => {
+    setCheckingHealth(true);
+    try {
+      const res = await fetch("/api/settings/connection-health");
+      if (res.ok) {
+        const data = await res.json();
+        setConnectionStatus({
+          success: data.success,
+          isMock: data.isMock,
+          message: data.message
+        });
+      }
+    } catch (err) {
+      console.error("Fejl ved kontrol af Google Sheets status:", err);
+    } finally {
+      setCheckingHealth(false);
+    }
+  };
+
+  const handleTestCredentials = async () => {
+    setTestingSettings(true);
+    setTestResult(null);
+    try {
+      const res = await fetch("/api/settings/test-google-sheets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(credentials),
+      });
+      const data = await res.json();
+      setTestResult({
+        success: data.success,
+        message: data.message,
+      });
+    } catch (err: any) {
+      setTestResult({
+        success: false,
+        message: "❌ Kunne ikke forbinde til serverens test-endpoint: " + err.message,
+      });
+    } finally {
+      setTestingSettings(false);
+    }
+  };
+
+  useEffect(() => {
+    const fetchCredentials = async () => {
+      setLoadingSettings(true);
+      try {
+        const res = await fetch("/api/settings/google-sheets");
+        if (res.ok) {
+          const data = await res.json();
+          setCredentials({
+            GOOGLE_CLIENT_EMAIL: data.GOOGLE_CLIENT_EMAIL || "",
+            GOOGLE_PRIVATE_KEY: data.GOOGLE_PRIVATE_KEY || "",
+            GOOGLE_SALES_SPREADSHEET_ID: data.GOOGLE_SALES_SPREADSHEET_ID || "",
+            GOOGLE_DEBITOR_SPREADSHEET_ID: data.GOOGLE_DEBITOR_SPREADSHEET_ID || "",
+            GOOGLE_DRIVE_FOLDER_ID: data.GOOGLE_DRIVE_FOLDER_ID || "",
+            USE_MOCK_DATA: data.USE_MOCK_DATA !== false, // default to true if not set
+          });
+        }
+      } catch (e) {
+        console.error("Failed to load Google Sheets settings:", e);
+      } finally {
+        setLoadingSettings(false);
+      }
+    };
+    fetchCredentials();
+    checkConnectionHealth();
+  }, []);
+
+  const handleSaveCredentials = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingSettings(true);
+    setSettingsMessage(null);
+    try {
+      const res = await fetch("/api/settings/google-sheets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(credentials),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setSettingsMessage({ type: "success", text: "Indstillingerne blev gemt og aktiveret med succes!" });
+        // Automatically hide or show message
+        setTimeout(() => setSettingsMessage(null), 6000);
+        // Re-check connection health
+        await checkConnectionHealth();
+      } else {
+        setSettingsMessage({ type: "error", text: data.error || "Kunne ikke gemme indstillinger." });
+      }
+    } catch (err: any) {
+      setSettingsMessage({ type: "error", text: "Fejl ved lagring: " + err.message });
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
   useEffect(() => {
     fetchImportHistory();
-  }, []);
+  }, [selectedModule]);
 
   const fetchImportHistory = async () => {
     setHistoryLoading(true);
     try {
-      const res = await fetch("/api/imports");
+      const url = "/api/imports";
+      const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
-        setImportHistory(data);
+        // Filter history based on businessModule to avoid cross-module mixing if both are in same store
+        const filtered = data.filter((item: ImportMetadata) => 
+          selectedModule === "sales" 
+            ? item.businessModule === "Sales" 
+            : item.businessModule === "Debitor"
+        );
+        setImportHistory(filtered);
       }
     } catch (e) {
       console.error("Failed to load import logs:", e);
@@ -80,7 +207,8 @@ export default function DatabaseManagement({ onImportSuccess }: DatabaseManageme
         setFileBase64(base64);
 
         // Send to backend for validation
-        const response = await fetch("/api/upload", {
+        const url = selectedModule === "sales" ? "/api/upload" : "/api/debitor/upload";
+        const response = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -144,7 +272,8 @@ export default function DatabaseManagement({ onImportSuccess }: DatabaseManageme
 
     setImporting(true);
     try {
-      const response = await fetch("/api/import", {
+      const url = selectedModule === "sales" ? "/api/import" : "/api/debitor/import";
+      const response = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -222,6 +351,61 @@ export default function DatabaseManagement({ onImportSuccess }: DatabaseManageme
         </div>
       </div>
 
+      {/* Connection Status Banner */}
+      {connectionStatus && !connectionStatus.isMock && (
+        <div className={`p-4 rounded-xl border ${
+          connectionStatus.success 
+            ? "bg-emerald-50/70 border-emerald-200 text-emerald-800" 
+            : "bg-rose-50 border-rose-200 text-rose-800"
+        }`}>
+          <div className="flex items-start gap-3">
+            {connectionStatus.success ? (
+              <CheckCircle className="h-5 w-5 text-emerald-600 shrink-0 mt-0.5" />
+            ) : (
+              <AlertTriangle className="h-5 w-5 text-rose-600 shrink-0 mt-0.5" />
+            )}
+            <div className="flex-1 space-y-1">
+              <h4 className="text-sm font-semibold">
+                {connectionStatus.success 
+                  ? "Google Sheets Forbindelse: Aktiv og godkendt" 
+                  : "Google Sheets Forbindelse: Mangler adgangstilladelse"}
+              </h4>
+              <div className="text-xs text-gray-600 leading-relaxed whitespace-pre-line">
+                {connectionStatus.success 
+                  ? `Forbindelsen til dit Google Sheet er aktiv og fungerer korrekt. Systemet synkroniserer data direkte til og fra din Google Spreadsheet.`
+                  : connectionStatus.message}
+              </div>
+              {!connectionStatus.success && (
+                <div className="pt-2">
+                  <button
+                    onClick={() => {
+                      setShowCredentials(true);
+                      setTimeout(() => {
+                        const element = document.getElementById("google-sheets-settings-card");
+                        if (element) {
+                          element.scrollIntoView({ behavior: "smooth" });
+                        }
+                      }, 100);
+                    }}
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-rose-700 hover:text-rose-800 underline cursor-pointer"
+                  >
+                    Åbn forbindelsesindstillinger for at rette eller kopiere e-mailadresse →
+                  </button>
+                </div>
+              )}
+            </div>
+            <button
+              onClick={checkConnectionHealth}
+              disabled={checkingHealth}
+              className="p-1 hover:bg-black/5 rounded text-gray-500 hover:text-gray-700 cursor-pointer disabled:opacity-50 shrink-0"
+              title="Genprøv statuskontrol"
+            >
+              <RefreshCw className={`h-4 w-4 ${checkingHealth ? "animate-spin" : ""}`} />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Main Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Side: Upload & Validation */}
@@ -239,11 +423,33 @@ export default function DatabaseManagement({ onImportSuccess }: DatabaseManageme
                   Forretningsmodul
                 </label>
                 <div className="flex gap-2">
-                  <button className="px-3.5 py-2 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-lg">
-                    Sales (Salg) - Aktiv
+                  <button
+                    onClick={() => {
+                      setSelectedModule("sales");
+                      handleClear();
+                    }}
+                    type="button"
+                    className={`px-3.5 py-2 text-xs font-medium rounded-lg border transition cursor-pointer ${
+                      selectedModule === "sales"
+                        ? "text-blue-700 bg-blue-50 border-blue-200"
+                        : "text-gray-600 bg-white border-gray-200 hover:bg-gray-50"
+                    }`}
+                  >
+                    Sales (Salg)
                   </button>
-                  <button disabled className="px-3.5 py-2 text-xs font-medium text-gray-400 bg-gray-50 border border-gray-200 rounded-lg cursor-not-allowed">
-                    Inventory (Lager) - Kommer snart
+                  <button
+                    onClick={() => {
+                      setSelectedModule("debitor");
+                      handleClear();
+                    }}
+                    type="button"
+                    className={`px-3.5 py-2 text-xs font-medium rounded-lg border transition cursor-pointer ${
+                      selectedModule === "debitor"
+                        ? "text-emerald-700 bg-emerald-50 border-emerald-200"
+                        : "text-gray-600 bg-white border-gray-200 hover:bg-gray-50"
+                    }`}
+                  >
+                    Saldoopfølgning (Debitor)
                   </button>
                 </div>
               </div>
@@ -384,20 +590,29 @@ export default function DatabaseManagement({ onImportSuccess }: DatabaseManageme
                   </p>
                 </div>
 
-                <div className="flex flex-col justify-center">
-                  <span className="text-xs font-medium text-gray-500 mb-1">Kampagne / Tilbud</span>
-                  <label className="flex items-center gap-2 cursor-pointer text-sm font-medium text-gray-900 select-none bg-rose-50 border border-rose-100 rounded px-2.5 py-1.5 transition hover:bg-rose-100/70">
-                    <input
-                      type="checkbox"
-                      checked={tilbudUge}
-                      onChange={(e) => setTilbudUge(e.target.checked)}
-                      className="h-4 w-4 text-rose-600 rounded border-gray-300 focus:ring-rose-500 cursor-pointer"
-                    />
-                    <span className="flex items-center gap-1 text-xs font-bold text-rose-700">
-                      ⭐ Tilbud Uge (Kampagne)
+                {selectedModule === "sales" ? (
+                  <div className="flex flex-col justify-center">
+                    <span className="text-xs font-medium text-gray-500 mb-1">Kampagne / Tilbud</span>
+                    <label className="flex items-center gap-2 cursor-pointer text-sm font-medium text-gray-900 select-none bg-rose-50 border border-rose-100 rounded px-2.5 py-1.5 transition hover:bg-rose-100/70">
+                      <input
+                        type="checkbox"
+                        checked={tilbudUge}
+                        onChange={(e) => setTilbudUge(e.target.checked)}
+                        className="h-4 w-4 text-rose-600 rounded border-gray-300 focus:ring-rose-500 cursor-pointer"
+                      />
+                      <span className="flex items-center gap-1 text-xs font-bold text-rose-700">
+                        ⭐ Tilbud Uge (Kampagne)
+                      </span>
+                    </label>
+                  </div>
+                ) : (
+                  <div className="flex flex-col justify-center">
+                    <span className="text-xs font-medium text-gray-500 mb-1">Modul</span>
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-100">
+                      🏦 Debitor Snapshot
                     </span>
-                  </label>
-                </div>
+                  </div>
+                )}
               </div>
 
               {/* Duplicate Warning */}
@@ -437,44 +652,103 @@ export default function DatabaseManagement({ onImportSuccess }: DatabaseManageme
               {/* Diagnostic detail panels */}
               <div className="p-5 space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* Found Required */}
-                  <div className="border border-gray-100 rounded-lg p-3.5 bg-gray-50/30">
-                    <span className="text-xs font-semibold text-gray-700">Obligatoriske felter fundet:</span>
-                    <div className="flex flex-wrap gap-1.5 mt-2">
-                      {validation.requiredColumnsFound.map((col) => (
-                        <span key={col} className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded text-[11px] font-mono">
-                          ✓ {col}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Missing/Invalid summary */}
-                  <div className="border border-gray-100 rounded-lg p-3.5 bg-gray-50/30 text-xs space-y-2">
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">Manglende påkrævede kolonner:</span>
-                      <span className={`font-semibold ${validation.missingColumns.length > 0 ? "text-red-600" : "text-gray-900"}`}>
-                        {validation.missingColumns.length}
-                      </span>
-                    </div>
-                    {validation.missingColumns.length > 0 && (
-                      <div className="text-[11px] text-red-500 font-mono">
-                        Mangler: {validation.missingColumns.join(", ")}
+                  {selectedModule === "sales" ? (
+                    <>
+                      {/* Found Required */}
+                      <div className="border border-gray-100 rounded-lg p-3.5 bg-gray-50/30">
+                        <span className="text-xs font-semibold text-gray-700">Obligatoriske felter fundet:</span>
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                          {validation.requiredColumnsFound?.map((col) => (
+                            <span key={col} className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded text-[11px] font-mono">
+                              ✓ {col}
+                            </span>
+                          ))}
+                        </div>
                       </div>
-                    )}
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">Tomme påkrævede celler:</span>
-                      <span className="font-semibold text-gray-900">{validation.emptyRequiredFieldsCount}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">Ugyldige datoer:</span>
-                      <span className="font-semibold text-gray-900">{validation.invalidDatesCount}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">Duplikerede rækker fundet:</span>
-                      <span className="font-semibold text-gray-900">{validation.duplicateRowCount}</span>
-                    </div>
-                  </div>
+
+                      {/* Missing/Invalid summary */}
+                      <div className="border border-gray-100 rounded-lg p-3.5 bg-gray-50/30 text-xs space-y-2">
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">Manglende påkrævede kolonner:</span>
+                          <span className={`font-semibold ${validation.missingColumns?.length > 0 ? "text-red-600" : "text-gray-900"}`}>
+                            {validation.missingColumns?.length || 0}
+                          </span>
+                        </div>
+                        {validation.missingColumns?.length > 0 && (
+                          <div className="text-[11px] text-red-500 font-mono">
+                            Mangler: {validation.missingColumns.join(", ")}
+                          </div>
+                        )}
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">Tomme påkrævede celler:</span>
+                          <span className="font-semibold text-gray-900">{validation.emptyRequiredFieldsCount}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">Ugyldige datoer:</span>
+                          <span className="font-semibold text-gray-900">{validation.invalidDatesCount}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">Duplikerede rækker fundet:</span>
+                          <span className="font-semibold text-gray-900">{validation.duplicateRowCount}</span>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      {/* Debitor Errors & Warnings */}
+                      <div className="border border-gray-100 rounded-lg p-3.5 bg-gray-50/30 text-xs space-y-3">
+                        <span className="text-xs font-semibold text-gray-700">Valideringsfejl & Advarsler:</span>
+                        {(validation as any).errors && (validation as any).errors.length > 0 ? (
+                          <div className="space-y-1">
+                            <span className="font-semibold text-red-600 font-sans">Fejl ({(validation as any).errors.length}):</span>
+                            <ul className="list-disc pl-4 text-[11px] text-red-600 space-y-0.5">
+                              {(validation as any).errors.map((err: string, idx: number) => (
+                                <li key={idx}>{err}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        ) : (
+                          <div className="text-emerald-600 font-medium">✓ Ingen valideringsfejl fundet.</div>
+                        )}
+
+                        {(validation as any).warnings && (validation as any).warnings.length > 0 && (
+                          <div className="space-y-1 pt-1.5 border-t border-gray-100">
+                            <span className="font-semibold text-amber-600 font-sans">Advarsler ({(validation as any).warnings.length}):</span>
+                            <ul className="list-disc pl-4 text-[11px] text-amber-600/90 space-y-0.5 max-h-24 overflow-y-auto">
+                              {(validation as any).warnings.map((warn: string, idx: number) => (
+                                <li key={idx}>{warn}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Debitor Columns summary */}
+                      <div className="border border-gray-100 rounded-lg p-3.5 bg-gray-50/30 text-xs space-y-2">
+                        <div className="flex justify-between">
+                          <span className="text-gray-500 font-medium">Kundenr., Navn & Saldo:</span>
+                          <span className={`font-semibold ${validation.missingColumns?.length > 0 ? "text-red-600" : "text-emerald-600"}`}>
+                            {validation.missingColumns?.length > 0 ? "Match Fejl" : "Match OK"}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">Manglende påkrævede kolonner:</span>
+                          <span className={`font-semibold ${validation.missingColumns?.length > 0 ? "text-red-600" : "text-gray-900"}`}>
+                            {validation.missingColumns?.length || 0}
+                          </span>
+                        </div>
+                        {validation.missingColumns?.length > 0 && (
+                          <div className="text-[11px] text-red-500 font-mono">
+                            Mangler: {validation.missingColumns.join(", ")}
+                          </div>
+                        )}
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">Filnavn matchet dato:</span>
+                          <span className="font-semibold text-gray-900 font-mono">{validation.detectedBusinessDate}</span>
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 {/* Data Preview Area */}
@@ -575,6 +849,241 @@ export default function DatabaseManagement({ onImportSuccess }: DatabaseManageme
             )}
           </div>
         </div>
+      </div>
+
+      {/* Google Sheets API Settings Panel */}
+      <div id="google-sheets-settings-card" className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm mt-6">
+        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 border-b border-gray-100 pb-4 mb-5">
+          <div className="flex items-start gap-3">
+            <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
+              <Settings className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-gray-900 flex items-center gap-2">
+                Google Sheets Forbindelsesindstillinger
+                <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                  credentials.USE_MOCK_DATA 
+                    ? "bg-amber-50 text-amber-700 border border-amber-100" 
+                    : "bg-emerald-50 text-emerald-700 border border-emerald-100"
+                }`}>
+                  {credentials.USE_MOCK_DATA ? "Mock-tilstand Aktiv" : "Live Google Sheets Forbindelse"}
+                </span>
+              </h2>
+              <p className="text-xs text-gray-500 mt-1 max-w-2xl">
+                Indtast dine Google Cloud Service Account (tjenestekonto) oplysninger nedenfor for at aktivere automatisk lagring og læsning direkte fra din Google Drive / Google Sheets konto.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowCredentials(!showCredentials)}
+            className="px-4 py-2 text-xs font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg transition shrink-0 cursor-pointer"
+          >
+            {showCredentials ? "Skjul indstillinger" : "Vis/Rediger indstillinger"}
+          </button>
+        </div>
+
+        {/* Informative Help Box in Turkish & Danish */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5 text-xs bg-slate-50 border border-slate-100 rounded-lg p-4">
+          <div className="space-y-1">
+            <h4 className="font-semibold text-slate-800">🇩🇰 Vejledning til Google Sheets</h4>
+            <p className="text-slate-600 leading-relaxed">
+              For at forbinde skal du oprette et projekt i Google Cloud Console, aktivere Google Sheets & Drive API, og oprette en Service Account. Del derefter dine spreadsheets med tjenestekontoens e-mailadresse med <strong>Redaktør (Editor)</strong> rettigheder.
+            </p>
+          </div>
+          <div className="space-y-1">
+            <h4 className="font-semibold text-slate-800">🇹🇷 Google Sheets Bağlantı Kılavuzu</h4>
+            <p className="text-slate-600 leading-relaxed">
+              Bağlantı kurmak için Google Cloud Console üzerinden bir Proje oluşturup Google Sheets & Drive API'lerini etkinleştirin ve bir Servis Hesabı oluşturun. Oluşturduğunuz e-posta adresine Google Sheet dosyalarınızda <strong>Düzenleyici (Editor)</strong> yetkisi verin.
+            </p>
+          </div>
+        </div>
+
+        {showCredentials && (
+          <form onSubmit={handleSaveCredentials} className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Client Email */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-gray-700 flex items-center gap-1.5">
+                  <Mail className="h-3.5 w-3.5 text-gray-400" />
+                  Google Client Email (GOOGLE_CLIENT_EMAIL)
+                </label>
+                <input
+                  type="email"
+                  required
+                  placeholder="f.eks. din-service-konto@projekt-id.iam.gserviceaccount.com"
+                  value={credentials.GOOGLE_CLIENT_EMAIL}
+                  onChange={(e) => setCredentials({ ...credentials, GOOGLE_CLIENT_EMAIL: e.target.value })}
+                  className="w-full text-xs p-2.5 bg-white border border-gray-200 rounded-lg focus:outline-none focus:border-blue-500 font-mono"
+                />
+              </div>
+
+              {/* Toggle Mock Data */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-gray-700 block">
+                  Datakilde Tilstand (USE_MOCK_DATA)
+                </label>
+                <div className="flex items-center gap-3 p-2 bg-gray-50 border border-gray-200 rounded-lg h-[38px]">
+                  <input
+                    type="checkbox"
+                    id="use_mock_data"
+                    checked={credentials.USE_MOCK_DATA}
+                    onChange={(e) => setCredentials({ ...credentials, USE_MOCK_DATA: e.target.checked })}
+                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded cursor-pointer"
+                  />
+                  <label htmlFor="use_mock_data" className="text-xs font-medium text-gray-700 cursor-pointer select-none">
+                    Aktiver mock-tilstand (Bruger lokale JSON-filer i stedet for Google Sheets)
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            {/* Private Key */}
+            <div className="space-y-1.5">
+              <div className="flex justify-between items-center">
+                <label className="text-xs font-semibold text-gray-700 flex items-center gap-1.5">
+                  <Key className="h-3.5 w-3.5 text-gray-400" />
+                  Google Private Key (GOOGLE_PRIVATE_KEY)
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowPrivateKey(!showPrivateKey)}
+                  className="text-xs text-blue-600 hover:underline flex items-center gap-1 cursor-pointer"
+                >
+                  {showPrivateKey ? (
+                    <>
+                      <EyeOff className="h-3 w-3" /> Skjul nøgle
+                    </>
+                  ) : (
+                    <>
+                      <Eye className="h-3 w-3" /> Vis nøgle
+                    </>
+                  )}
+                </button>
+              </div>
+              <textarea
+                required
+                rows={5}
+                placeholder="-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC7...\n-----END PRIVATE KEY-----"
+                value={credentials.GOOGLE_PRIVATE_KEY}
+                onChange={(e) => setCredentials({ ...credentials, GOOGLE_PRIVATE_KEY: e.target.value })}
+                className="w-full text-xs p-2.5 bg-white border border-gray-200 rounded-lg focus:outline-none focus:border-blue-500 font-mono leading-relaxed"
+                style={{ WebkitTextSecurity: showPrivateKey ? "none" : "disc" } as any}
+              />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Debitor Spreadsheet ID */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-gray-700 flex items-center gap-1.5">
+                  <Link2 className="h-3.5 w-3.5 text-gray-400" />
+                  Debitor Spreadsheet ID (GOOGLE_DEBITOR_SPREADSHEET_ID)
+                </label>
+                <input
+                  type="text"
+                  placeholder="f.eks. 1BqUfl2UZAXNLsiTInlVa_x7P4..."
+                  value={credentials.GOOGLE_DEBITOR_SPREADSHEET_ID}
+                  onChange={(e) => setCredentials({ ...credentials, GOOGLE_DEBITOR_SPREADSHEET_ID: e.target.value })}
+                  className="w-full text-xs p-2.5 bg-white border border-gray-200 rounded-lg focus:outline-none focus:border-blue-500 font-mono"
+                />
+              </div>
+
+              {/* Sales Spreadsheet ID */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-gray-700 flex items-center gap-1.5">
+                  <Link2 className="h-3.5 w-3.5 text-gray-400" />
+                  Sales Spreadsheet ID (GOOGLE_SALES_SPREADSHEET_ID)
+                </label>
+                <input
+                  type="text"
+                  placeholder="f.eks. 1BqUfl2UZAXNLsiTInlVa_x7P4..."
+                  value={credentials.GOOGLE_SALES_SPREADSHEET_ID}
+                  onChange={(e) => setCredentials({ ...credentials, GOOGLE_SALES_SPREADSHEET_ID: e.target.value })}
+                  className="w-full text-xs p-2.5 bg-white border border-gray-200 rounded-lg focus:outline-none focus:border-blue-500 font-mono"
+                />
+              </div>
+
+              {/* Drive Folder ID */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-gray-700 flex items-center gap-1.5">
+                  <Link2 className="h-3.5 w-3.5 text-gray-400" />
+                  Drive Folder ID (GOOGLE_DRIVE_FOLDER_ID)
+                </label>
+                <input
+                  type="text"
+                  placeholder="f.eks. 1kLp9X1Z_YyM_2..."
+                  value={credentials.GOOGLE_DRIVE_FOLDER_ID}
+                  onChange={(e) => setCredentials({ ...credentials, GOOGLE_DRIVE_FOLDER_ID: e.target.value })}
+                  className="w-full text-xs p-2.5 bg-white border border-gray-200 rounded-lg focus:outline-none focus:border-blue-500 font-mono"
+                />
+              </div>
+            </div>
+
+            {settingsMessage && (
+              <div className={`p-3.5 rounded-lg flex items-start gap-2.5 text-xs ${
+                settingsMessage.type === "success" 
+                  ? "bg-emerald-50 border border-emerald-200 text-emerald-800" 
+                  : "bg-red-50 border border-red-200 text-red-800"
+              }`}>
+                {settingsMessage.type === "success" ? (
+                  <CheckCircle className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
+                ) : (
+                  <XCircle className="h-4 w-4 text-red-600 shrink-0 mt-0.5" />
+                )}
+                <span>{settingsMessage.text}</span>
+              </div>
+            )}
+
+            {testResult && (
+              <div className={`p-4 rounded-lg flex flex-col gap-2 text-xs border ${
+                testResult.success 
+                  ? "bg-emerald-50 border-emerald-200 text-emerald-800" 
+                  : "bg-rose-50 border-rose-200 text-rose-800"
+              }`}>
+                <div className="flex items-start gap-2.5">
+                  {testResult.success ? (
+                    <CheckCircle className="h-4.5 w-4.5 text-emerald-600 shrink-0 mt-0.5" />
+                  ) : (
+                    <AlertTriangle className="h-4.5 w-4.5 text-rose-600 shrink-0 mt-0.5" />
+                  )}
+                  <div className="whitespace-pre-line font-medium leading-relaxed">
+                    {testResult.message}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3 pt-2">
+              <button
+                type="button"
+                disabled={testingSettings || savingSettings}
+                onClick={handleTestCredentials}
+                className="inline-flex items-center justify-center gap-2 px-5 py-2.5 text-xs font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:bg-gray-100 border border-gray-200 rounded-lg transition shadow-sm cursor-pointer"
+              >
+                {testingSettings ? (
+                  <>
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin text-gray-500" /> 
+                    <span>Tester forbindelse...</span>
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="h-3.5 w-3.5 text-gray-500" />
+                    <span>Test Forbindelse (Google Sheets)</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                type="submit"
+                disabled={savingSettings || testingSettings}
+                className="inline-flex items-center justify-center gap-2 px-5 py-2.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 rounded-lg transition shadow-sm cursor-pointer"
+              >
+                {savingSettings && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
+                Gem forbindelsesindstillinger (Apply)
+              </button>
+            </div>
+          </form>
+        )}
       </div>
     </div>
   );

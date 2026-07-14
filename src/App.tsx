@@ -9,6 +9,7 @@ import SalesAlertsAndOpportunities from "./modules/sales/components/SalesAlertsA
 import DatabaseManagement from "./modules/database/components/DatabaseManagement.tsx";
 import TabVindManagement from "./modules/tab-vind/components/TabVindManagement.tsx";
 import CountingManagement from "./modules/counting/components/CountingManagement.tsx";
+import DebitorManagement from "./modules/debitor/components/DebitorManagement.tsx";
 import { SalesRawRow, ImportMetadata, SalesFilter } from "./shared/types.ts";
 import { getComparisonDate } from "./modules/sales/calculations.ts";
 import { formatDate } from "./shared/utils/format.ts";
@@ -264,6 +265,17 @@ export default function App() {
                 latestWorksheetRows={rowsCache[availableDates[0]] || []}
                 onNavigate={navigateToModule}
               />
+            </motion.div>
+          )}
+
+          {/* Debitor Module */}
+          {activeModule === "debitor" && (
+            <motion.div
+              initial={{ opacity: 0, y: 5 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.2 }}
+            >
+              <DebitorManagement />
             </motion.div>
           )}
 
