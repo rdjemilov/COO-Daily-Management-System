@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Upload, FileSpreadsheet, CheckCircle, AlertTriangle, XCircle, RefreshCw, Calendar, Eye, Database, Settings, Lock, Key, Mail, Link2, EyeOff } from "lucide-react";
+import { Upload, FileSpreadsheet, CheckCircle, AlertTriangle, XCircle, RefreshCw, Calendar, Eye, Database, Settings, Lock, Key, Mail, Link2, EyeOff, Copy, Check, ChevronDown, ChevronUp } from "lucide-react";
 import { ValidationSummary, ImportMetadata, SalesRawRow } from "../../../shared/types.js";
 import { formatCurrency, formatDate, formatFileSize, formatNumber } from "../../../shared/utils/format.js";
 
@@ -46,6 +46,8 @@ export default function DatabaseManagement({ onImportSuccess }: DatabaseManageme
   // States for testing Supabase connection live
   const [testingSettings, setTestingSettings] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [showSqlSchema, setShowSqlSchema] = useState(false);
+  const [copiedText, setCopiedText] = useState<string | null>(null);
 
   // Connection health status
   const [connectionStatus, setConnectionStatus] = useState<{ success: boolean; isMock: boolean; message: string } | null>(null);
@@ -891,6 +893,233 @@ export default function DatabaseManagement({ onImportSuccess }: DatabaseManageme
               Eğer bağlantı bilgileri girilmezse veya boş bırakılırsa, uygulama kesintisiz çalışmaya devam edebilmek için <strong>Local JSON yedeklerini</strong> kullanmaya devam eder. Böylelikle veri kaybı veya kesinti yaşamazsınız.
             </p>
           </div>
+        </div>
+
+        {/* Collapsible SQL Schema Section */}
+        <div className="mb-5 border border-slate-200 rounded-lg overflow-hidden bg-white">
+          <button
+            type="button"
+            onClick={() => setShowSqlSchema(!showSqlSchema)}
+            className="w-full flex items-center justify-between px-4 py-3 bg-slate-100 hover:bg-slate-150 transition text-slate-700 text-xs font-semibold select-none cursor-pointer"
+          >
+            <div className="flex items-center gap-2">
+              <Database className="h-4 w-4 text-indigo-500" />
+              <span>Gerekli SQL Tablo Şemaları (Kopyala & Supabase'de Çalıştır)</span>
+            </div>
+            {showSqlSchema ? <ChevronUp className="h-4 w-4 text-slate-500" /> : <ChevronDown className="h-4 w-4 text-slate-500" />}
+          </button>
+          
+          {showSqlSchema && (
+            <div className="p-4 bg-slate-900 border-t border-slate-800 text-slate-300 relative">
+              <button
+                type="button"
+                onClick={() => {
+                  const sqlCode = `-- 1. Import Metadata Table
+CREATE TABLE IF NOT EXISTS import_metadata (
+  import_id VARCHAR(255) PRIMARY KEY,
+  business_module VARCHAR(50) NOT NULL,
+  business_date VARCHAR(100),
+  worksheet_name VARCHAR(255),
+  uploaded_file_name VARCHAR(255),
+  original_file_size BIGINT,
+  imported_row_count INTEGER,
+  imported_column_count INTEGER,
+  imported_at VARCHAR(100),
+  uploaded_by VARCHAR(255),
+  import_status VARCHAR(50),
+  import_version INTEGER,
+  file_hash VARCHAR(255),
+  template_version VARCHAR(50) DEFAULT '1.0.0',
+  error_message TEXT,
+  replaced_import_id VARCHAR(255),
+  application_version VARCHAR(50) DEFAULT '1.0.0',
+  tilbud_uge BOOLEAN DEFAULT FALSE
+);
+
+-- 2. Sales Rows Table
+CREATE TABLE IF NOT EXISTS sales_rows (
+  id BIGSERIAL PRIMARY KEY,
+  import_id VARCHAR(255) REFERENCES import_metadata(import_id) ON DELETE CASCADE,
+  posting_date VARCHAR(100),
+  entry_type VARCHAR(100),
+  document_type VARCHAR(100),
+  document_number VARCHAR(100),
+  item_number VARCHAR(100),
+  description TEXT,
+  location_code VARCHAR(100),
+  quantity NUMERIC,
+  invoiced_quantity NUMERIC,
+  remaining_quantity NUMERIC,
+  sales_amount NUMERIC,
+  cost_amount NUMERIC,
+  source_type VARCHAR(100),
+  customer_number VARCHAR(100),
+  customer_name VARCHAR(255),
+  department_code VARCHAR(100),
+  employee_name VARCHAR(255)
+);
+
+-- 3. Debitor Rows Table
+CREATE TABLE IF NOT EXISTS debitor_rows (
+  id BIGSERIAL PRIMARY KEY,
+  import_id VARCHAR(255) REFERENCES import_metadata(import_id) ON DELETE CASCADE,
+  customer_number VARCHAR(100),
+  customer_name VARCHAR(255),
+  balance NUMERIC,
+  overdue_balance NUMERIC,
+  payment_terms VARCHAR(255),
+  last_invoice VARCHAR(100),
+  credit_handling VARCHAR(255),
+  salesperson VARCHAR(255),
+  location VARCHAR(255),
+  seller VARCHAR(255)
+);
+
+-- 4. Debtor Actions Table
+CREATE TABLE IF NOT EXISTS debtor_actions (
+  id VARCHAR(255) PRIMARY KEY,
+  customer_number VARCHAR(100),
+  type VARCHAR(100),
+  status VARCHAR(100),
+  priority VARCHAR(100),
+  owner VARCHAR(255),
+  due_date VARCHAR(100),
+  comment TEXT,
+  created_by VARCHAR(255),
+  created_at VARCHAR(100),
+  updated_by VARCHAR(255),
+  updated_at VARCHAR(100),
+  closed_at VARCHAR(100),
+  promised_payment_date VARCHAR(100),
+  reference VARCHAR(255)
+);
+
+-- 5. Debtor Notes Table
+CREATE TABLE IF NOT EXISTS debtor_notes (
+  id VARCHAR(255) PRIMARY KEY,
+  customer_number VARCHAR(100),
+  category VARCHAR(100),
+  text TEXT,
+  author VARCHAR(255),
+  created_at VARCHAR(100),
+  updated_by VARCHAR(255),
+  updated_at VARCHAR(100),
+  is_pinned BOOLEAN DEFAULT FALSE
+);`;
+                  navigator.clipboard.writeText(sqlCode);
+                  setCopiedText("sql");
+                  setTimeout(() => setCopiedText(null), 2000);
+                }}
+                className="absolute top-3 right-3 p-1.5 rounded-md bg-slate-800 text-slate-300 hover:text-white transition text-xs flex items-center gap-1 cursor-pointer border border-slate-700"
+              >
+                {copiedText === "sql" ? (
+                  <>
+                    <Check className="h-3.5 w-3.5 text-emerald-400" />
+                    <span className="text-emerald-400">Kopyalandı!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="h-3.5 w-3.5" />
+                    <span>Şemayı Kopyala</span>
+                  </>
+                )}
+              </button>
+              <pre className="text-[10px] font-mono whitespace-pre overflow-x-auto max-h-60 leading-relaxed scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent pr-12">
+{`-- 1. Import Metadata Table
+CREATE TABLE IF NOT EXISTS import_metadata (
+  import_id VARCHAR(255) PRIMARY KEY,
+  business_module VARCHAR(50) NOT NULL,
+  business_date VARCHAR(100),
+  worksheet_name VARCHAR(255),
+  uploaded_file_name VARCHAR(255),
+  original_file_size BIGINT,
+  imported_row_count INTEGER,
+  imported_column_count INTEGER,
+  imported_at VARCHAR(100),
+  uploaded_by VARCHAR(255),
+  import_status VARCHAR(50),
+  import_version INTEGER,
+  file_hash VARCHAR(255),
+  template_version VARCHAR(50) DEFAULT '1.0.0',
+  error_message TEXT,
+  replaced_import_id VARCHAR(255),
+  application_version VARCHAR(50) DEFAULT '1.0.0',
+  tilbud_uge BOOLEAN DEFAULT FALSE
+);
+
+-- 2. Sales Rows Table
+CREATE TABLE IF NOT EXISTS sales_rows (
+  id BIGSERIAL PRIMARY KEY,
+  import_id VARCHAR(255) REFERENCES import_metadata(import_id) ON DELETE CASCADE,
+  posting_date VARCHAR(100),
+  entry_type VARCHAR(100),
+  document_type VARCHAR(100),
+  document_number VARCHAR(100),
+  item_number VARCHAR(100),
+  description TEXT,
+  location_code VARCHAR(100),
+  quantity NUMERIC,
+  invoiced_quantity NUMERIC,
+  remaining_quantity NUMERIC,
+  sales_amount NUMERIC,
+  cost_amount NUMERIC,
+  source_type VARCHAR(100),
+  customer_number VARCHAR(100),
+  customer_name VARCHAR(255),
+  department_code VARCHAR(100),
+  employee_name VARCHAR(255)
+);
+
+-- 3. Debitor Rows Table
+CREATE TABLE IF NOT EXISTS debitor_rows (
+  id BIGSERIAL PRIMARY KEY,
+  import_id VARCHAR(255) REFERENCES import_metadata(import_id) ON DELETE CASCADE,
+  customer_number VARCHAR(100),
+  customer_name VARCHAR(255),
+  balance NUMERIC,
+  overdue_balance NUMERIC,
+  payment_terms VARCHAR(255),
+  last_invoice VARCHAR(100),
+  credit_handling VARCHAR(255),
+  salesperson VARCHAR(255),
+  location VARCHAR(255),
+  seller VARCHAR(255)
+);
+
+-- 4. Debtor Actions Table
+CREATE TABLE IF NOT EXISTS debtor_actions (
+  id VARCHAR(255) PRIMARY KEY,
+  customer_number VARCHAR(100),
+  type VARCHAR(100),
+  status VARCHAR(100),
+  priority VARCHAR(100),
+  owner VARCHAR(255),
+  due_date VARCHAR(100),
+  comment TEXT,
+  created_by VARCHAR(255),
+  created_at VARCHAR(100),
+  updated_by VARCHAR(255),
+  updated_at VARCHAR(100),
+  closed_at VARCHAR(100),
+  promised_payment_date VARCHAR(100),
+  reference VARCHAR(255)
+);
+
+-- 5. Debtor Notes Table
+CREATE TABLE IF NOT EXISTS debtor_notes (
+  id VARCHAR(255) PRIMARY KEY,
+  customer_number VARCHAR(100),
+  category VARCHAR(100),
+  text TEXT,
+  author VARCHAR(255),
+  created_at VARCHAR(100),
+  updated_by VARCHAR(255),
+  updated_at VARCHAR(100),
+  is_pinned BOOLEAN DEFAULT FALSE
+);`}
+              </pre>
+            </div>
+          )}
         </div>
 
         {showCredentials && (
