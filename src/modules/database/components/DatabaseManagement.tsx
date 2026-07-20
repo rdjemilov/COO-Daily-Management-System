@@ -31,14 +31,11 @@ export default function DatabaseManagement({ onImportSuccess }: DatabaseManageme
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<{ success: boolean; message: string; importId?: string } | null>(null);
 
-  // Google Sheets API Settings States
+  // Supabase Database Connection Settings States
   const [showCredentials, setShowCredentials] = useState(false);
   const [credentials, setCredentials] = useState({
-    GOOGLE_CLIENT_EMAIL: "",
-    GOOGLE_PRIVATE_KEY: "",
-    GOOGLE_SALES_SPREADSHEET_ID: "",
-    GOOGLE_DEBITOR_SPREADSHEET_ID: "",
-    GOOGLE_DRIVE_FOLDER_ID: "",
+    SUPABASE_URL: "",
+    SUPABASE_KEY: "",
     USE_MOCK_DATA: true,
   });
   const [savingSettings, setSavingSettings] = useState(false);
@@ -46,7 +43,7 @@ export default function DatabaseManagement({ onImportSuccess }: DatabaseManageme
   const [loadingSettings, setLoadingSettings] = useState(false);
   const [showPrivateKey, setShowPrivateKey] = useState(false);
 
-  // States for testing Google Sheets connection live
+  // States for testing Supabase connection live
   const [testingSettings, setTestingSettings] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
@@ -67,7 +64,7 @@ export default function DatabaseManagement({ onImportSuccess }: DatabaseManageme
         });
       }
     } catch (err) {
-      console.error("Fejl ved kontrol af Google Sheets status:", err);
+      console.error("Fejl ved kontrol af Supabase status:", err);
     } finally {
       setCheckingHealth(false);
     }
@@ -77,7 +74,7 @@ export default function DatabaseManagement({ onImportSuccess }: DatabaseManageme
     setTestingSettings(true);
     setTestResult(null);
     try {
-      const res = await fetch("/api/settings/test-google-sheets", {
+      const res = await fetch("/api/settings/test-supabase", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(credentials),
@@ -101,20 +98,17 @@ export default function DatabaseManagement({ onImportSuccess }: DatabaseManageme
     const fetchCredentials = async () => {
       setLoadingSettings(true);
       try {
-        const res = await fetch("/api/settings/google-sheets");
+        const res = await fetch("/api/settings/supabase");
         if (res.ok) {
           const data = await res.json();
           setCredentials({
-            GOOGLE_CLIENT_EMAIL: data.GOOGLE_CLIENT_EMAIL || "",
-            GOOGLE_PRIVATE_KEY: data.GOOGLE_PRIVATE_KEY || "",
-            GOOGLE_SALES_SPREADSHEET_ID: data.GOOGLE_SALES_SPREADSHEET_ID || "",
-            GOOGLE_DEBITOR_SPREADSHEET_ID: data.GOOGLE_DEBITOR_SPREADSHEET_ID || "",
-            GOOGLE_DRIVE_FOLDER_ID: data.GOOGLE_DRIVE_FOLDER_ID || "",
+            SUPABASE_URL: data.SUPABASE_URL || "",
+            SUPABASE_KEY: data.SUPABASE_KEY || "",
             USE_MOCK_DATA: data.USE_MOCK_DATA !== false, // default to true if not set
           });
         }
       } catch (e) {
-        console.error("Failed to load Google Sheets settings:", e);
+        console.error("Failed to load Supabase settings:", e);
       } finally {
         setLoadingSettings(false);
       }
@@ -128,7 +122,7 @@ export default function DatabaseManagement({ onImportSuccess }: DatabaseManageme
     setSavingSettings(true);
     setSettingsMessage(null);
     try {
-      const res = await fetch("/api/settings/google-sheets", {
+      const res = await fetch("/api/settings/supabase", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(credentials),
@@ -851,26 +845,26 @@ export default function DatabaseManagement({ onImportSuccess }: DatabaseManageme
         </div>
       </div>
 
-      {/* Google Sheets API Settings Panel */}
-      <div id="google-sheets-settings-card" className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm mt-6">
+      {/* Supabase API Settings Panel */}
+      <div id="supabase-settings-card" className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm mt-6">
         <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 border-b border-gray-100 pb-4 mb-5">
           <div className="flex items-start gap-3">
-            <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
-              <Settings className="h-5 w-5" />
+            <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
+              <Database className="h-5 w-5" />
             </div>
             <div>
               <h2 className="text-base font-semibold text-gray-900 flex items-center gap-2">
-                Google Sheets Forbindelsesindstillinger
+                Supabase Veritabanı Bağlantı Ayarları
                 <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                   credentials.USE_MOCK_DATA 
                     ? "bg-amber-50 text-amber-700 border border-amber-100" 
-                    : "bg-emerald-50 text-emerald-700 border border-emerald-100"
+                    : "bg-indigo-50 text-indigo-700 border border-indigo-100"
                 }`}>
-                  {credentials.USE_MOCK_DATA ? "Mock-tilstand Aktiv" : "Live Google Sheets Forbindelse"}
+                  {credentials.USE_MOCK_DATA ? "Lokal Yedek Modu Aktif" : "Canlı Supabase Bağlantısı"}
                 </span>
               </h2>
               <p className="text-xs text-gray-500 mt-1 max-w-2xl">
-                Indtast dine Google Cloud Service Account (tjenestekonto) oplysninger nedenfor for at aktivere automatisk lagring og læsning direkte fra din Google Drive / Google Sheets konto.
+                Tüm Google Sheets entegrasyonu başarıyla kaldırılmıştır. Excel import kayıtlarınız, eylemler ve notlar doğrudan aşağıdaki Supabase veritabanında saklanır.
               </p>
             </div>
           </div>
@@ -879,22 +873,22 @@ export default function DatabaseManagement({ onImportSuccess }: DatabaseManageme
             onClick={() => setShowCredentials(!showCredentials)}
             className="px-4 py-2 text-xs font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg transition shrink-0 cursor-pointer"
           >
-            {showCredentials ? "Skjul indstillinger" : "Vis/Rediger indstillinger"}
+            {showCredentials ? "Ayarları Gizle" : "Bağlantı Bilgilerini Düzenle"}
           </button>
         </div>
 
-        {/* Informative Help Box in Turkish & Danish */}
+        {/* Informative Help Box in Turkish */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5 text-xs bg-slate-50 border border-slate-100 rounded-lg p-4">
           <div className="space-y-1">
-            <h4 className="font-semibold text-slate-800">🇩🇰 Vejledning til Google Sheets</h4>
+            <h4 className="font-semibold text-slate-800">🔌 Supabase Bağlantısı</h4>
             <p className="text-slate-600 leading-relaxed">
-              For at forbinde skal du oprette et projekt i Google Cloud Console, aktivere Google Sheets & Drive API, og oprette en Service Account. Del derefter dine spreadsheets med tjenestekontoens e-mailadresse med <strong>Redaktør (Editor)</strong> rettigheder.
+              Supabase hesabınızda yeni bir proje oluşturun ve aşağıdaki tablolara ait SQL şemasını SQL Editor kısmından çalıştırın. Ardından projenizin <strong>Project Settings &gt; API</strong> bölümünden alacağınız URL ve <code>service_role</code> (veya <code>anon</code>) anahtarlarını yan tarafa yapıştırın.
             </p>
           </div>
           <div className="space-y-1">
-            <h4 className="font-semibold text-slate-800">🇹🇷 Google Sheets Bağlantı Kılavuzu</h4>
+            <h4 className="font-semibold text-slate-800">💾 Çift Yönlü Güvenlik (Dual Mode)</h4>
             <p className="text-slate-600 leading-relaxed">
-              Bağlantı kurmak için Google Cloud Console üzerinden bir Proje oluşturup Google Sheets & Drive API'lerini etkinleştirin ve bir Servis Hesabı oluşturun. Oluşturduğunuz e-posta adresine Google Sheet dosyalarınızda <strong>Düzenleyici (Editor)</strong> yetkisi verin.
+              Eğer bağlantı bilgileri girilmezse veya boş bırakılırsa, uygulama kesintisiz çalışmaya devam edebilmek için <strong>Local JSON yedeklerini</strong> kullanmaya devam eder. Böylelikle veri kaybı veya kesinti yaşamazsınız.
             </p>
           </div>
         </div>
@@ -902,26 +896,26 @@ export default function DatabaseManagement({ onImportSuccess }: DatabaseManageme
         {showCredentials && (
           <form onSubmit={handleSaveCredentials} className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Client Email */}
+              {/* Supabase URL */}
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-gray-700 flex items-center gap-1.5">
-                  <Mail className="h-3.5 w-3.5 text-gray-400" />
-                  Google Client Email (GOOGLE_CLIENT_EMAIL)
+                  <Link2 className="h-3.5 w-3.5 text-gray-400" />
+                  Supabase Proje URL (SUPABASE_URL)
                 </label>
                 <input
-                  type="email"
+                  type="text"
                   required
-                  placeholder="f.eks. din-service-konto@projekt-id.iam.gserviceaccount.com"
-                  value={credentials.GOOGLE_CLIENT_EMAIL}
-                  onChange={(e) => setCredentials({ ...credentials, GOOGLE_CLIENT_EMAIL: e.target.value })}
-                  className="w-full text-xs p-2.5 bg-white border border-gray-200 rounded-lg focus:outline-none focus:border-blue-500 font-mono"
+                  placeholder="https://xxxxxx.supabase.co"
+                  value={credentials.SUPABASE_URL}
+                  onChange={(e) => setCredentials({ ...credentials, SUPABASE_URL: e.target.value })}
+                  className="w-full text-xs p-2.5 bg-white border border-gray-200 rounded-lg focus:outline-none focus:border-indigo-500 font-mono"
                 />
               </div>
 
               {/* Toggle Mock Data */}
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-gray-700 block">
-                  Datakilde Tilstand (USE_MOCK_DATA)
+                  Veri Depolama Durumu (USE_MOCK_DATA)
                 </label>
                 <div className="flex items-center gap-3 p-2 bg-gray-50 border border-gray-200 rounded-lg h-[38px]">
                   <input
@@ -929,94 +923,46 @@ export default function DatabaseManagement({ onImportSuccess }: DatabaseManageme
                     id="use_mock_data"
                     checked={credentials.USE_MOCK_DATA}
                     onChange={(e) => setCredentials({ ...credentials, USE_MOCK_DATA: e.target.checked })}
-                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded cursor-pointer"
+                    className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded cursor-pointer"
                   />
                   <label htmlFor="use_mock_data" className="text-xs font-medium text-gray-700 cursor-pointer select-none">
-                    Aktiver mock-tilstand (Bruger lokale JSON-filer i stedet for Google Sheets)
+                    Lokal yedek modunu etkinleştir (Supabase yerine yerel JSON dosyalarını kullanır)
                   </label>
                 </div>
               </div>
             </div>
 
-            {/* Private Key */}
+            {/* Supabase Key */}
             <div className="space-y-1.5">
               <div className="flex justify-between items-center">
                 <label className="text-xs font-semibold text-gray-700 flex items-center gap-1.5">
                   <Key className="h-3.5 w-3.5 text-gray-400" />
-                  Google Private Key (GOOGLE_PRIVATE_KEY)
+                  Supabase API Key (SUPABASE_KEY)
                 </label>
                 <button
                   type="button"
                   onClick={() => setShowPrivateKey(!showPrivateKey)}
-                  className="text-xs text-blue-600 hover:underline flex items-center gap-1 cursor-pointer"
+                  className="text-xs text-indigo-600 hover:underline flex items-center gap-1 cursor-pointer"
                 >
                   {showPrivateKey ? (
                     <>
-                      <EyeOff className="h-3 w-3" /> Skjul nøgle
+                      <EyeOff className="h-3 w-3" /> Gizle
                     </>
                   ) : (
                     <>
-                      <Eye className="h-3 w-3" /> Vis nøgle
+                      <Eye className="h-3 w-3" /> Göster
                     </>
                   )}
                 </button>
               </div>
-              <textarea
+              <input
+                type={showPrivateKey ? "text" : "password"}
                 required
-                rows={5}
-                placeholder="-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC7...\n-----END PRIVATE KEY-----"
-                value={credentials.GOOGLE_PRIVATE_KEY}
-                onChange={(e) => setCredentials({ ...credentials, GOOGLE_PRIVATE_KEY: e.target.value })}
-                className="w-full text-xs p-2.5 bg-white border border-gray-200 rounded-lg focus:outline-none focus:border-blue-500 font-mono leading-relaxed"
-                style={{ WebkitTextSecurity: showPrivateKey ? "none" : "disc" } as any}
+                placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                value={credentials.SUPABASE_KEY}
+                onChange={(e) => setCredentials({ ...credentials, SUPABASE_KEY: e.target.value })}
+                className="w-full text-xs p-2.5 bg-white border border-gray-200 rounded-lg focus:outline-none focus:border-indigo-500 font-mono"
               />
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {/* Debitor Spreadsheet ID */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-gray-700 flex items-center gap-1.5">
-                  <Link2 className="h-3.5 w-3.5 text-gray-400" />
-                  Debitor Spreadsheet ID (GOOGLE_DEBITOR_SPREADSHEET_ID)
-                </label>
-                <input
-                  type="text"
-                  placeholder="f.eks. 1BqUfl2UZAXNLsiTInlVa_x7P4..."
-                  value={credentials.GOOGLE_DEBITOR_SPREADSHEET_ID}
-                  onChange={(e) => setCredentials({ ...credentials, GOOGLE_DEBITOR_SPREADSHEET_ID: e.target.value })}
-                  className="w-full text-xs p-2.5 bg-white border border-gray-200 rounded-lg focus:outline-none focus:border-blue-500 font-mono"
-                />
-              </div>
-
-              {/* Sales Spreadsheet ID */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-gray-700 flex items-center gap-1.5">
-                  <Link2 className="h-3.5 w-3.5 text-gray-400" />
-                  Sales Spreadsheet ID (GOOGLE_SALES_SPREADSHEET_ID)
-                </label>
-                <input
-                  type="text"
-                  placeholder="f.eks. 1BqUfl2UZAXNLsiTInlVa_x7P4..."
-                  value={credentials.GOOGLE_SALES_SPREADSHEET_ID}
-                  onChange={(e) => setCredentials({ ...credentials, GOOGLE_SALES_SPREADSHEET_ID: e.target.value })}
-                  className="w-full text-xs p-2.5 bg-white border border-gray-200 rounded-lg focus:outline-none focus:border-blue-500 font-mono"
-                />
-              </div>
-
-              {/* Drive Folder ID */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-gray-700 flex items-center gap-1.5">
-                  <Link2 className="h-3.5 w-3.5 text-gray-400" />
-                  Drive Folder ID (GOOGLE_DRIVE_FOLDER_ID)
-                </label>
-                <input
-                  type="text"
-                  placeholder="f.eks. 1kLp9X1Z_YyM_2..."
-                  value={credentials.GOOGLE_DRIVE_FOLDER_ID}
-                  onChange={(e) => setCredentials({ ...credentials, GOOGLE_DRIVE_FOLDER_ID: e.target.value })}
-                  className="w-full text-xs p-2.5 bg-white border border-gray-200 rounded-lg focus:outline-none focus:border-blue-500 font-mono"
-                />
-              </div>
             </div>
 
             {settingsMessage && (
@@ -1063,12 +1009,12 @@ export default function DatabaseManagement({ onImportSuccess }: DatabaseManageme
                 {testingSettings ? (
                   <>
                     <RefreshCw className="h-3.5 w-3.5 animate-spin text-gray-500" /> 
-                    <span>Tester forbindelse...</span>
+                    <span>Bağlantı Test Ediliyor...</span>
                   </>
                 ) : (
                   <>
                     <RefreshCw className="h-3.5 w-3.5 text-gray-500" />
-                    <span>Test Forbindelse (Google Sheets)</span>
+                    <span>Bağlantıyı Test Et (Supabase)</span>
                   </>
                 )}
               </button>
@@ -1076,10 +1022,10 @@ export default function DatabaseManagement({ onImportSuccess }: DatabaseManageme
               <button
                 type="submit"
                 disabled={savingSettings || testingSettings}
-                className="inline-flex items-center justify-center gap-2 px-5 py-2.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 rounded-lg transition shadow-sm cursor-pointer"
+                className="inline-flex items-center justify-center gap-2 px-5 py-2.5 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 rounded-lg transition shadow-sm cursor-pointer"
               >
                 {savingSettings && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
-                Gem forbindelsesindstillinger (Apply)
+                Bağlantı Ayarlarını Kaydet (Uygula)
               </button>
             </div>
           </form>

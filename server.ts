@@ -3,13 +3,12 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import * as XLSX from "xlsx";
-import { seedMockDataIfEmpty, getImportHistory, saveToGoogleSheets, getWorksheetData, calculateFileHash, checkDuplicateFile } from "./server/dbService.js";
+import { seedMockDataIfEmpty, getImportHistory, saveToDatabase, getWorksheetData, calculateFileHash, checkDuplicateFile } from "./server/dbService.js";
 import { validateExcelData, cleanAndMapRows } from "./server/validator.js";
 import { ImportMetadata } from "./src/shared/types.js";
 import { calculateSalesAlerts, getISOWeekString } from "./server/alerts/sales-alerts.service.js";
 import { handleAnalyse, handlePdf } from "./server/tab-vind/handler.js";
 import { handleCountingProductsLookup, handleCountingProductsQuery, handleCountingProductsRefresh, handleCountingPdf } from "./server/counting/handler.js";
-import { google } from "googleapis";
 import { DebitorGoogleSheetsService } from "./services/debitor/google/sheets.ts";
 import { validateDebitorExcelData, cleanAndMapDebitorRows, aggregateDebitorRows } from "./services/debitor/import/validator.ts";
 import { parseAndMapTransactions } from "./services/debitor/import/transactions.ts";
@@ -141,14 +140,11 @@ app.get("/api/counting/products", handleCountingProductsQuery);
 app.post("/api/counting/products/refresh", handleCountingProductsRefresh);
 app.post("/api/counting/pdf", handleCountingPdf);
 
-app.get("/api/settings/google-sheets", (req, res) => {
+app.get("/api/settings/supabase", (req, res) => {
   try {
     res.json({
-      GOOGLE_CLIENT_EMAIL: process.env.GOOGLE_CLIENT_EMAIL || "",
-      GOOGLE_PRIVATE_KEY: process.env.GOOGLE_PRIVATE_KEY || "",
-      GOOGLE_SALES_SPREADSHEET_ID: process.env.GOOGLE_SALES_SPREADSHEET_ID || "",
-      GOOGLE_DEBITOR_SPREADSHEET_ID: process.env.GOOGLE_DEBITOR_SPREADSHEET_ID || "",
-      GOOGLE_DRIVE_FOLDER_ID: process.env.GOOGLE_DRIVE_FOLDER_ID || "",
+      SUPABASE_URL: process.env.SUPABASE_URL || "",
+      SUPABASE_KEY: process.env.SUPABASE_KEY || "",
       USE_MOCK_DATA: process.env.USE_MOCK_DATA === "true"
     });
   } catch (err: any) {
@@ -156,23 +152,17 @@ app.get("/api/settings/google-sheets", (req, res) => {
   }
 });
 
-app.post("/api/settings/google-sheets", (req, res) => {
+app.post("/api/settings/supabase", (req, res) => {
   try {
     const {
-      GOOGLE_CLIENT_EMAIL,
-      GOOGLE_PRIVATE_KEY,
-      GOOGLE_SALES_SPREADSHEET_ID,
-      GOOGLE_DEBITOR_SPREADSHEET_ID,
-      GOOGLE_DRIVE_FOLDER_ID,
+      SUPABASE_URL,
+      SUPABASE_KEY,
       USE_MOCK_DATA
     } = req.body;
 
     // 1. Update in-memory process.env so it works immediately
-    process.env.GOOGLE_CLIENT_EMAIL = GOOGLE_CLIENT_EMAIL;
-    process.env.GOOGLE_PRIVATE_KEY = GOOGLE_PRIVATE_KEY;
-    process.env.GOOGLE_SALES_SPREADSHEET_ID = GOOGLE_SALES_SPREADSHEET_ID;
-    process.env.GOOGLE_DEBITOR_SPREADSHEET_ID = GOOGLE_DEBITOR_SPREADSHEET_ID;
-    process.env.GOOGLE_DRIVE_FOLDER_ID = GOOGLE_DRIVE_FOLDER_ID;
+    process.env.SUPABASE_URL = SUPABASE_URL;
+    process.env.SUPABASE_KEY = SUPABASE_KEY;
     process.env.USE_MOCK_DATA = USE_MOCK_DATA ? "true" : "false";
 
     // 2. Persist to .env file
@@ -190,11 +180,8 @@ app.post("/api/settings/google-sheets", (req, res) => {
 
     let lines = envContent.split(/\r?\n/);
     const updatedKeys = {
-      GOOGLE_CLIENT_EMAIL,
-      GOOGLE_PRIVATE_KEY,
-      GOOGLE_SALES_SPREADSHEET_ID,
-      GOOGLE_DEBITOR_SPREADSHEET_ID,
-      GOOGLE_DRIVE_FOLDER_ID,
+      SUPABASE_URL,
+      SUPABASE_KEY,
       USE_MOCK_DATA: USE_MOCK_DATA ? "true" : "false"
     };
 
@@ -213,7 +200,7 @@ app.post("/api/settings/google-sheets", (req, res) => {
     }
 
     fs.writeFileSync(envPath, lines.join("\n"), "utf8");
-    res.json({ success: true, message: "Google Sheets forbindelsesindstillinger er gemt og aktiveret!" });
+    res.json({ success: true, message: "Supabase bağlantı ayarları kaydedildi ve etkinleştirildi!" });
   } catch (err: any) {
     res.status(500).json({ error: "Kunne ikke gemme indstillinger: " + err.message });
   }
@@ -223,77 +210,70 @@ app.post("/api/settings/google-sheets", (req, res) => {
 app.get("/api/settings/connection-health", async (req, res) => {
   try {
     const isMock = process.env.USE_MOCK_DATA === "true";
-    const clientEmail = process.env.GOOGLE_CLIENT_EMAIL;
-    const privateKey = process.env.GOOGLE_PRIVATE_KEY;
-    const salesSpreadsheetId = process.env.GOOGLE_SALES_SPREADSHEET_ID;
-    const debitorSpreadsheetId = process.env.GOOGLE_DEBITOR_SPREADSHEET_ID;
+    const hasSupabase = !!(process.env.SUPABASE_URL && process.env.SUPABASE_KEY);
 
     if (isMock) {
       return res.json({
         success: true,
         isMock: true,
-        message: "Kører i lokal simulerings-tilstand (Mock data)."
+        message: "Lokal simülasyon modunda çalışıyor (Local JSON yedekleri aktif)."
       });
     }
 
-    if (!clientEmail || !privateKey || !salesSpreadsheetId) {
+    if (!hasSupabase) {
       return res.json({
         success: false,
         isMock: false,
-        message: "Google Sheets legitimationsoplysninger eller Sales Spreadsheet ID mangler i .env"
+        message: "Supabase bağlantı bilgileri (SUPABASE_URL, SUPABASE_KEY) .env dosyasında eksik."
       });
     }
 
-    try {
-      const auth = new google.auth.JWT({
-        email: clientEmail,
-        key: privateKey?.replace(/\\n/g, "\n"),
-        scopes: ["https://www.googleapis.com/auth/spreadsheets"]
-      });
-      const sheets = google.sheets({ version: "v4", auth });
-      await sheets.spreadsheets.get({ spreadsheetId: salesSpreadsheetId });
-      
-      let message = "Forbindelsen til dit Google Sales Sheet er aktiv og fungerer korrekt.";
-      if (debitorSpreadsheetId) {
-        message += "\nDebitor Spreadsheet ID er også konfigureret.";
-      }
-      
-      res.json({
-        success: true,
-        isMock: false,
-        message
-      });
-    } catch (e: any) {
-      res.json({
-        success: false,
-        isMock: false,
-        message: "Kunne ikke forbinde til Google Sheets API: " + (e.message || e)
-      });
-    }
+    // Try testing connection
+    const test = await DebitorGoogleSheetsService.testConnection();
+    res.json({
+      success: test.success,
+      isMock: false,
+      message: test.message
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // API Route: Test Credentials
-app.post("/api/settings/test-google-sheets", async (req, res) => {
+app.post("/api/settings/test-supabase", async (req, res) => {
   try {
-    const { GOOGLE_CLIENT_EMAIL, GOOGLE_PRIVATE_KEY, GOOGLE_SALES_SPREADSHEET_ID } = req.body;
-    if (!GOOGLE_CLIENT_EMAIL || !GOOGLE_PRIVATE_KEY || !GOOGLE_SALES_SPREADSHEET_ID) {
-      return res.json({ success: false, message: "Mangler påkrævede felter til test." });
+    const { SUPABASE_URL, SUPABASE_KEY } = req.body;
+    if (!SUPABASE_URL || !SUPABASE_KEY) {
+      return res.json({ success: false, message: "Test için gerekli alanlar eksik." });
     }
 
+    // Temporarily apply process.env to test
+    const oldUrl = process.env.SUPABASE_URL;
+    const oldKey = process.env.SUPABASE_KEY;
+    
+    // We can clear any cached client to force a new one
+    const { getSupabaseClient } = await import("./server/supabaseService.js");
+    process.env.SUPABASE_URL = SUPABASE_URL;
+    process.env.SUPABASE_KEY = SUPABASE_KEY;
+
     try {
-      const auth = new google.auth.JWT({
-        email: GOOGLE_CLIENT_EMAIL,
-        key: GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n"),
-        scopes: ["https://www.googleapis.com/auth/spreadsheets"]
-      });
-      const sheets = google.sheets({ version: "v4", auth });
-      await sheets.spreadsheets.get({ spreadsheetId: GOOGLE_SALES_SPREADSHEET_ID });
-      res.json({ success: true, message: "Forbindelsestest lykkedes for Sales Spreadsheet!" });
+      const client = getSupabaseClient();
+      if (!client) {
+        throw new Error("Supabase istemcisi başlatılamadı.");
+      }
+      
+      const { data, error } = await client.from("import_metadata").select("import_id").limit(1);
+      if (error) {
+        throw error;
+      }
+
+      res.json({ success: true, message: "Supabase veritabanı bağlantı testi başarılı!" });
     } catch (err: any) {
-      res.json({ success: false, message: "Test mislykkedes: " + (err.message || err) });
+      res.json({ success: false, message: "Bağlantı başarısız: " + (err.message || err) });
+    } finally {
+      process.env.SUPABASE_URL = oldUrl;
+      process.env.SUPABASE_KEY = oldKey;
     }
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -310,17 +290,6 @@ app.post(["/api/debitor/upload", "/api/database/debitor/validate"], async (req, 
         error: {
           code: "MISSING_PAYLOAD",
           message: "Manglende filindhold eller filnavn",
-          retryable: false
-        }
-      });
-    }
-
-    if (!process.env.GOOGLE_DEBITOR_SPREADSHEET_ID) {
-      return res.status(400).json({
-        success: false,
-        error: {
-          code: "DEBITOR_ENV_MISSING",
-          message: "GOOGLE_DEBITOR_SPREADSHEET_ID environment variable is missing.",
           retryable: false
         }
       });
@@ -392,17 +361,6 @@ app.post(["/api/debitor/import", "/api/database/debitor/import"], async (req, re
         error: {
           code: "MISSING_PAYLOAD",
           message: "Manglende nødvendige importparametre",
-          retryable: false
-        }
-      });
-    }
-
-    if (!process.env.GOOGLE_DEBITOR_SPREADSHEET_ID) {
-      return res.status(400).json({
-        success: false,
-        error: {
-          code: "DEBITOR_ENV_MISSING",
-          message: "GOOGLE_DEBITOR_SPREADSHEET_ID environment variable is missing.",
           retryable: false
         }
       });
@@ -1062,8 +1020,8 @@ app.post("/api/import", async (req, res) => {
       metadata.replacedImportId = replaceImportId;
     }
 
-    // Save to Google Sheets (simulated database layer)
-    const success = await saveToGoogleSheets(businessDate, cleanRows, metadata);
+    // Save to Database layer (with local backup)
+    const success = await saveToDatabase(businessDate, cleanRows, metadata);
     if (!success) {
       throw new Error("Failed to write import data to database model");
     }
